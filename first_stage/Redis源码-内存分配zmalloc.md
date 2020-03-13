@@ -22,13 +22,13 @@ char *zstrdup(const char *s); // 深拷贝字符串s
 size_t zmalloc_used_memory(void); // 获取以分配的内存空间大小
 void zmalloc_set_oom_handler(void (*oom_handler)(size_t)); // 可自定义内存溢出的处理方法
 size_t zmalloc_get_rss(void); // 获取rss信息（Resident Set Size 常驻内存集）
-int zmalloc_get_allocator_info(size_t *allocated, size_t *active, size_t *resident); // 获取
-void set_jemalloc_bg_thread(int enable);
-int jemalloc_purge();
-size_t zmalloc_get_private_dirty(long pid);
-size_t zmalloc_get_smap_bytes_by_field(char *field, long pid);
-size_t zmalloc_get_memory_size(void);
-void zlibc_free(void *ptr);
+int zmalloc_get_allocator_info(size_t *allocated, size_t *active, size_t *resident); // 获取jemalloc分配的信息
+void set_jemalloc_bg_thread(int enable); // flushdb没有通信后，让jemalloc异步清除
+int jemalloc_purge(); // 手动清理内存碎片
+size_t zmalloc_get_private_dirty(long pid); // 获取smap中的Private_Dirty大小
+size_t zmalloc_get_smap_bytes_by_field(char *field, long pid); // 获取smap中的某字段大小
+size_t zmalloc_get_memory_size(void); // 获取物理内存的大小
+void zlibc_free(void *ptr); // 释放内存，不更新used_memory（不知道为啥，等以后看懂了再注释）
 ```
 
 </br>  
@@ -39,7 +39,8 @@ void zlibc_free(void *ptr);
 ---
 
 ``` c
-// 记录以使用的内存大小，对该变量的操作都是原子操作
+// 记录以使用的内存总大小，对该变量的操作都是原子操作
+// 在redis-cli使用info命令可以查看
 static size_t used_memory = 0;
 
 // 调用系统函数malloc申请size大小的内存空间，PREFIX_SIZE根据不同平台和HAVE_MALLOC_SIZE控制的。
