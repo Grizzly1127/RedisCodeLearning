@@ -65,7 +65,7 @@ alloc：字符串的最大容量
 flags：表示结构体的类型  
 buf：字符串  
 
-<font color=red>结构</font>：| len | alloc | flags | buf + '\0'填充 |  
+<font color=red>结构</font>：| len(buf的长度) | alloc(buf+'\0'填充的长度) | flags | buf + '\0'填充 |  
 </br>
 </br>
 
