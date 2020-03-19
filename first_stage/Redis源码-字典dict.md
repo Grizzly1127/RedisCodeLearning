@@ -3,6 +3,8 @@
 ## 简介
 
 ---
+源码位置：dict.c/dict.h  
+  
 Redis中字典的结构：
 ![字典结构](../img/dict.png)  
 Redis的字典是由两个HashTable（后面简称ht[0]、ht[1]）构成，与其他字典不同的是，当当前的hashtable负载过高时，redis的字典会进行rehash（重新计算hash），rehash的过程是渐进式的，并不会一下子把所有的数据转移到另一张hashtable中，否则那样会造成服务短暂时间内无法使用。  
@@ -84,7 +86,7 @@ typedef void (dictScanFunction)(void *privdata, const dictEntry *de);
 typedef void (dictScanBucketFunction)(void *privdata, dictEntry **bucketref);
 
 /* This is the initial size of every hash table */
-#define DICT_HT_INITIAL_SIZE     4
+#define DICT_HT_INITIAL_SIZE     4  // 哈希表的链表个数初始化为4
 
 /* ------------------------------- Macros ------------------------------------*/
 #define dictFreeVal(d, entry) \

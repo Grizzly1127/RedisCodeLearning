@@ -3,6 +3,8 @@
 ## 简介
 
 ---
+源码位置：zmalloc.c/zmalloc.h  
+
 因为Redis没有自己实现内存池，所以系统内存分配器的性能及碎片率会对redis造成一些性能上的影响。  
 Redis采用了3中内存分配器：tcmalloc、jemalloc、malloc。  
 Redis在编译时，首先会判断是否使用tcmalloc，其次是jemalloc，如果都没有使用，则使用libc中的内存管理函数malloc。  

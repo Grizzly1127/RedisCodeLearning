@@ -3,6 +3,8 @@
 ## 简介
 
 ---
+源码位置：adlist.c/adlist.h  
+
 很好理解的双端链表，结构如下，不多做解释了。
 ![list](../img/adlist.png)
 </br>
