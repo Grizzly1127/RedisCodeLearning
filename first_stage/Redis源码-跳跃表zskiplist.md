@@ -1,13 +1,12 @@
-# zset有序集合
+# zskiplist跳跃表
 
 ## 简介
 
 ---
 源码位置：t_zset.c/server.h
 
-实现Redis中的数据结构：zset有序集合。  
-![zset结构](../img/zset.png)  
-zset主要是由dict和zskiplist来实现的。
+![zskiplist结构](../img/zskiplist.png)  
+跳跃表是zset有序集合的底层实现之一。
 </br>
 </br>
 
@@ -33,11 +32,6 @@ typedef struct zskiplist {
     unsigned long length; // 跳跃表的长度
     int level;
 } zskiplist;
-// 有序集合
-typedef struct zset {
-    dict *dict; // 字典
-    zskiplist *zsl; // 跳跃表
-} zset;
 
 #define ZSKIPLIST_MAXLEVEL 32 /* Should be enough for 2^64 elements */
 #define ZSKIPLIST_P 0.25      /* Skiplist P = 1/4 */
