@@ -5,8 +5,9 @@
 ---
 源码位置：t_zset.c/server.h
 
-![zskiplist结构](../img/zskiplist.png)  
-跳跃表是zset有序集合的底层实现之一。
+![zskiplist结构](../img/zskiplist_.png)  
+跳跃表是zset有序集合的底层实现之一。  
+
 </br>
 </br>
 
@@ -19,22 +20,22 @@
 /* ZSETs use a specialized version of Skiplists */
 typedef struct zskiplistNode {
     sds ele;
-    double score;
-    struct zskiplistNode *backward;
+    double score; // 分值
+    struct zskiplistNode *backward; // 后退指针
     struct zskiplistLevel {
-        struct zskiplistNode *forward;
-        unsigned long span;
-    } level[];
+        struct zskiplistNode *forward; // 前进指针
+        unsigned long span; // 跨度
+    } level[]; // 跳跃表的层
 } zskiplistNode;
 
 typedef struct zskiplist {
-    struct zskiplistNode *header, *tail;
+    struct zskiplistNode *header, *tail; // header为跳跃表的表头节点， tail为表尾节点
     unsigned long length; // 跳跃表的长度
-    int level;
+    int level; // 跳跃表当前的层数
 } zskiplist;
 
-#define ZSKIPLIST_MAXLEVEL 32 /* Should be enough for 2^64 elements */
-#define ZSKIPLIST_P 0.25      /* Skiplist P = 1/4 */
+#define ZSKIPLIST_MAXLEVEL 32 /* Should be enough for 2^64 elements */ // 跳跃表层数，最大为32层，当最低层数据达到2^64时，才会能达到最顶层，所以完全足够
+#define ZSKIPLIST_P 0.25      /* Skiplist P = 1/4 */ // 用于计算上层被分配到的概率
 
 /* Input flags. */
 #define ZADD_NONE 0
