@@ -6,7 +6,14 @@
 源码位置：sds.c/sds.h  
 
 实现了动态字符串，采用预分配冗余空间的方式来减少内存的频繁分配。
-</br>
+
+SDS结构一共有5中header定义，目的是为了满足不同长度的字符串可以使用不同大小的header，从而节省内存。  
+结构体主要包含以下几个部分：  
+len：字符串的实际长度  
+alloc：字符串的最大容量  
+flags：表示结构体的类型  
+buf：字符串  
+![sds结构](../img/sds.png)
 </br>
 </br>
 
@@ -60,14 +67,6 @@ struct __attribute__ ((__packed__)) sdshdr64 {
 #define SDS_TYPE_5_LEN(f) ((f)>>SDS_TYPE_BITS) // 获取sdshdr5的长度
 ```
 
-SDS结构一共有5中header定义，目的是为了满足不同长度的字符串可以使用不同大小的header，从而节省内存。  
-结构体主要包含以下几个部分：  
-len：字符串的实际长度  
-alloc：字符串的最大容量  
-flags：表示结构体的类型  
-buf：字符串  
-
-<span style="color:red;">结构</span>：| len(buf的长度) | alloc(buf+'\0'填充的长度) | flags | buf + '\0'填充 |  
 </br>
 </br>
 
