@@ -7,7 +7,8 @@
 
 Redis3.2版本以前的列表底层的编码是ziplist和linkedlist实现的，3.2版本后重新引入了quicklist的数据结构，列表底层都由quicklist来实现。我认为ziplist还是有学习的必要，知其然，更要知其所以然，因为只有看懂了ziplist，才能知道Redis为什么选择quicklist而不是ziplist。  
 
-ziplist结构：  
+ziplist没有定义专门的结构体，其在内存块中的表示如下图所示：  
+**ziplist结构：**  
 ![ziplist](../img/ziplist.png)  
 |属性       |类型       |长度        |用途        |
 |---        |---        |---        |---        |
@@ -17,15 +18,20 @@ ziplist结构：
 |entry      |列表节点    |不定       |压缩列表包含的各个节点，节点的长度由节点保存的内容决定。|
 |zlend      |uint_8t    |1B         | 0xFF（255），用于标记压缩列表的末端。|  
 
-entry结构：  
+**entry结构：**  
 ![entry](../img/ziplist_entry.png)  
-prevrawlensize：编码 prevrawlen 所需的字节大小  
 prevrawlen：前置节点的长度  
-lensize：编码 len 所需的字节大小  
-len：当前节点的长度  
-headersize：当前节点 header 的大小，prevrawlensize + lensize  
-encoding：类型编码  
-p：当前节点的指针
+
+1. 如果长度小于254个字节，则使用1字节（uint8_t）来存储prevrawlen。
+
+2. 如果长度大于或等于254字节，则使用4字节(uint32_t)来存储prevrawlen。  
+
+len/encoding：当前节点的长度（编码类型）  
+![encoding](../img/ziplist_encoding.png)
+
+data：数据  
+
+实际上，源码里有定义zlentry的结构体，但是这个结构体并不是实际上存储的节点结构，它仅做中间结构操作使用。  
 </br>
 </br>
 
@@ -119,17 +125,23 @@ p：当前节点的指针
  * Note that this is not how the data is actually encoded, is just what we
  * get filled by a function in order to operate more easily. */
 typedef struct zlentry {
+    // 编码 prevrawlen 所需的字节大小
     unsigned int prevrawlensize; /* Bytes used to encode the previous entry len*/
+    // 前置节点的长度
     unsigned int prevrawlen;     /* Previous entry len. */
+    // 编码 len 所需的字节大小
     unsigned int lensize;        /* Bytes used to encode this entry type/len.
                                     For example strings have a 1, 2 or 5 bytes
                                     header. Integers always use a single byte.*/
+    // 当前节点的长度
     unsigned int len;            /* Bytes used to represent the actual entry.
                                     For strings this is just the string length
                                     while for integers it is 1, 2, 3, 4, 8 or
                                     0 (for 4 bit immediate) depending on the
                                     number range. */
+    // 当前节点 header 的大小，prevrawlensize + lensize
     unsigned int headersize;     /* prevrawlensize + lensize. */
+    // 类型编码:3种字符编码+6种整数编码
     unsigned char encoding;      /* Set to ZIP_STR_* or ZIP_INT_* depending on
                                     the entry encoding. However for 4 bits
                                     immediate integers this can assume a range
