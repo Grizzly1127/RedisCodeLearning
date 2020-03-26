@@ -6,6 +6,8 @@
 源码位置：intset.c/intset.h  
 
 intset是redis内部的数据结构之一，用来实现redis的set结构（当元素较少且为数字类型时）。  
+为了节省内存的使用，创建intset的时候，使用最小的int类型（int16_t），当插入的整数大于int16_t时，将会进行对应的字节提升（int32_t或者int64_t），这种提升是不可逆的。  
+
 **特点：**  
 
 1. 元素类型只有数字。
@@ -33,6 +35,8 @@ typedef struct intset {
 #define INTSET_ENC_INT64 (sizeof(int64_t))
 ```
 
+</br>
+
 ## 函数功能总览
 
 ---
@@ -47,6 +51,8 @@ uint8_t intsetGet(intset *is, uint32_t pos, int64_t *value);
 uint32_t intsetLen(const intset *is);
 size_t intsetBlobLen(intset *is);
 ```
+
+</br>
 
 ## 主要函数实现
 
@@ -116,7 +122,7 @@ static void _intsetSet(intset *is, int pos, int64_t value) {
 /* Create an empty intset. */
 intset *intsetNew(void) {
     intset *is = zmalloc(sizeof(intset)); // 分配空间
-    is->encoding = intrev32ifbe(INTSET_ENC_INT16); // 默认元素大小为2字节
+    is->encoding = intrev32ifbe(INTSET_ENC_INT16); // 默认元素大小为2字节 intrev32ifbe:如果cpu是大端模式，则转为小端模式
     is->length = 0;
     return is;
 }
