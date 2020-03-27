@@ -24,7 +24,7 @@ prevrawlen：前置节点的长度
 
 1. 如果长度小于254个字节，则使用1字节（uint8_t）来存储prevrawlen。
 
-2. 如果长度大于或等于254字节，则使用4字节(uint32_t)来存储prevrawlen。  
+2. 如果长度大于或等于254字节，则使用5字节(uint32_t)来存储prevrawlen。  
 
 len/encoding：当前节点的长度（编码类型）  
 ![encoding](../img/ziplist_encoding.png)
@@ -54,8 +54,8 @@ data：数据
                                representing the previous entry len. */ // 列表的最大长度
 
 /* Different encoding/length possibilities */
-#define ZIP_STR_MASK 0xc0
-#define ZIP_INT_MASK 0x30
+#define ZIP_STR_MASK 0xc0           // 11000000 : 如果encoding小于ZIP_STR_MASK，则为字符串
+#define ZIP_INT_MASK 0x30           // 00110000
 #define ZIP_STR_06B (0 << 6)        // 00aaaaaa : 高位2个bit00表示len只有一个字节，后面6个bit表示数据长度值，最高可以表示63字节（2^6-1）
 #define ZIP_STR_14B (1 << 6)        // 01aaaaaa aaaaaaaa : 高位2个bit01表示len有两个字节，剩余的14个bit表示数据长度值，最高可以表示16383字节（2^14-1）
 #define ZIP_STR_32B (2 << 6)        // 10______ aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa : 高位2个bit10表示len有五个字节，接下来的6个bit不使用，剩余的bit表示数据长度值，最高可以表示16383字节（2^14-1）
@@ -368,5 +368,172 @@ int zipTryEncoding(unsigned char *entry, unsigned int entrylen, long long *v, un
         return 1;
     }
     return 0;
+}
+```
+
+**遍历相关：**
+
+``` c
+// 返回下一个节点的位置
+/* Return pointer to next entry in ziplist.
+ *
+ * zl is the pointer to the ziplist
+ * p is the pointer to the current element
+ *
+ * The element after 'p' is returned, otherwise NULL if we are at the end. */
+unsigned char *ziplistNext(unsigned char *zl, unsigned char *p) {
+    ((void) zl);
+
+    /* "p" could be equal to ZIP_END, caused by ziplistDelete,
+     * and we should return NULL. Otherwise, we should return NULL
+     * when the *next* element is ZIP_END (there is no next entry). */
+    if (p[0] == ZIP_END) {
+        return NULL;
+    }
+
+    p += zipRawEntryLength(p);  // 返回当前节点的长度，然后指针偏移到下一个节点
+    if (p[0] == ZIP_END) {
+        return NULL;
+    }
+
+    return p;
+}
+// 返回上一个节点的位置
+/* Return pointer to previous entry in ziplist. */
+unsigned char *ziplistPrev(unsigned char *zl, unsigned char *p) {
+    unsigned int prevlensize, prevlen = 0;
+
+    /* Iterating backwards from ZIP_END should return the tail. When "p" is
+     * equal to the first element of the list, we're already at the head,
+     * and should return NULL. */
+    if (p[0] == ZIP_END) {
+        p = ZIPLIST_ENTRY_TAIL(zl); // 获取根据zltail获取末尾节点的指针
+        return (p[0] == ZIP_END) ? NULL : p;
+    } else if (p == ZIPLIST_ENTRY_HEAD(zl)) {
+        return NULL; // 如果p是头节点，则不存在上一个节点了
+    } else {
+        ZIP_DECODE_PREVLEN(p, prevlensize, prevlen); // 获取前置节点的长度
+        assert(prevlen > 0);
+        return p-prevlen;
+    }
+}
+```
+
+**查找：**
+
+``` c
+// 获取节点p的数据，如果是字符串，则填充到sstr和slen中，如果是整数，则填充到sval中
+/* Get entry pointed to by 'p' and store in either '*sstr' or 'sval' depending
+ * on the encoding of the entry. '*sstr' is always set to NULL to be able
+ * to find out whether the string pointer or the integer value was set.
+ * Return 0 if 'p' points to the end of the ziplist, 1 otherwise. */
+unsigned int ziplistGet(unsigned char *p, unsigned char **sstr, unsigned int *slen, long long *sval) {
+    zlentry entry;
+    if (p == NULL || p[0] == ZIP_END) return 0;
+    if (sstr) *sstr = NULL;
+
+    zipEntry(p, &entry); // 将内存中该节点的信息构造成中间结构zlentry，便于操作
+    if (ZIP_IS_STR(entry.encoding)) {
+        if (sstr) {
+            *slen = entry.len;
+            *sstr = p+entry.headersize;
+        }
+    } else {
+        if (sval) {
+            *sval = zipLoadInteger(p+entry.headersize,entry.encoding);
+        }
+    }
+    return 1;
+}
+```
+
+**删除：**
+
+``` c
+/* Delete a single entry from the ziplist, pointed to by *p.
+ * Also update *p in place, to be able to iterate over the
+ * ziplist, while deleting entries. */
+unsigned char *ziplistDelete(unsigned char *zl, unsigned char **p) {
+    size_t offset = *p-zl; // 获取当前节点的偏移量
+    zl = __ziplistDelete(zl,*p,1);
+
+    /* Store pointer to current element in p, because ziplistDelete will
+     * do a realloc which might result in a different "zl"-pointer.
+     * When the delete direction is back to front, we might delete the last
+     * entry and end up with "p" pointing to ZIP_END, so check this. */
+    *p = zl+offset;
+    return zl;
+}
+
+/* Delete a range of entries from the ziplist. */
+unsigned char *ziplistDeleteRange(unsigned char *zl, int index, unsigned int num) {
+    unsigned char *p = ziplistIndex(zl,index);
+    return (p == NULL) ? zl : __ziplistDelete(zl,p,num);
+}
+
+/* Delete "num" entries, starting at "p". Returns pointer to the ziplist. */
+unsigned char *__ziplistDelete(unsigned char *zl, unsigned char *p, unsigned int num) {
+    unsigned int i, totlen, deleted = 0;
+    size_t offset;
+    int nextdiff = 0;
+    zlentry first, tail;
+
+    zipEntry(p, &first); // 构造中间结构
+    for (i = 0; p[0] != ZIP_END && i < num; i++) {
+        p += zipRawEntryLength(p); // 偏移到下一个节点
+        deleted++; // 统计删除的节点数
+    }
+
+    totlen = p-first.p; /* Bytes taken by the element(s) to delete. */ // 计算需要删除的字节数
+    if (totlen > 0) {
+        if (p[0] != ZIP_END) {
+            /* Storing `prevrawlen` in this entry may increase or decrease the
+             * number of bytes required compare to the current `prevrawlen`.
+             * There always is room to store this, because it was previously
+             * stored by an entry that is now being deleted. */
+            // 计算
+            nextdiff = zipPrevLenByteDiff(p,first.prevrawlen);
+
+            /* Note that there is always space when p jumps backward: if
+             * the new previous entry is large, one of the deleted elements
+             * had a 5 bytes prevlen header, so there is for sure at least
+             * 5 bytes free and we need just 4. */
+            p -= nextdiff;
+            zipStorePrevEntryLength(p,first.prevrawlen);
+
+            /* Update offset for tail */
+            ZIPLIST_TAIL_OFFSET(zl) =
+                intrev32ifbe(intrev32ifbe(ZIPLIST_TAIL_OFFSET(zl))-totlen);
+
+            /* When the tail contains more than one entry, we need to take
+             * "nextdiff" in account as well. Otherwise, a change in the
+             * size of prevlen doesn't have an effect on the *tail* offset. */
+            zipEntry(p, &tail);
+            if (p[tail.headersize+tail.len] != ZIP_END) {
+                ZIPLIST_TAIL_OFFSET(zl) =
+                   intrev32ifbe(intrev32ifbe(ZIPLIST_TAIL_OFFSET(zl))+nextdiff);
+            }
+
+            /* Move tail to the front of the ziplist */
+            memmove(first.p,p,
+                intrev32ifbe(ZIPLIST_BYTES(zl))-(p-zl)-1);
+        } else {
+            /* The entire tail was deleted. No need to move memory. */
+            ZIPLIST_TAIL_OFFSET(zl) =
+                intrev32ifbe((first.p-zl)-first.prevrawlen);
+        }
+
+        /* Resize and update length */
+        offset = first.p-zl;
+        zl = ziplistResize(zl, intrev32ifbe(ZIPLIST_BYTES(zl))-totlen+nextdiff);
+        ZIPLIST_INCR_LENGTH(zl,-deleted);
+        p = zl+offset;
+
+        /* When nextdiff != 0, the raw length of the next entry has changed, so
+         * we need to cascade the update throughout the ziplist */
+        if (nextdiff != 0)
+            zl = __ziplistCascadeUpdate(zl,p);
+    }
+    return zl;
 }
 ```
