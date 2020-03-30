@@ -8,14 +8,14 @@
 ![zskiplist结构](../img/zskiplist_.png)  
 跳跃表是zset有序集合的底层实现之一。  
 
-**节点插入：**跳跃表中，一个节点的插入，分为三个步骤。  
+**节点插入：** 跳跃表中，一个节点的插入，分为三个步骤。  
 1.根据新增节点的score值，从最高层开始往下对比查找到新增节点每一层（这里的“每一层”是指以当前跳跃表最高层为准，并不是新增节点的层数，因为此时新增节点还没有随机出层数）的前驱层的节点指针，redis使用update[ZSKIPLIST_MAXLEVEL]数组来记录。计算出从header的每一层到新增节点所经过的节点数，使用rank[ZSKIPLIST_MAXLEVEL]数组来记录。  
 2.使用redis的随机算法，随机出新增节点的层数，如果高于当前层数，则更新跳跃表的最高层数、update数组对应的指向和rank数组对应的值（高出那部分的层数rank值为0）。  
 3.进行跳跃表的插入，就是对新增节点插入位置相邻的节点间，根据update数组进行更改指针指向的操作，根据rank来计算出对应span的值。  
 
-**节点删除：**和节点插入的原理差不多，也需要用到update数组。根据score找到对应节点后，将节点抽离出来（根据update数组进行指针的重新指向，对应的span值减1），进行删除操作即可。
+**节点删除：** 和节点插入的原理差不多，也需要用到update数组。根据score找到对应节点后，将节点抽离出来（根据update数组进行指针的重新指向，对应的span值减1），进行删除操作即可。
 
-**节点更新：**和节点删除的原理差不多，如果跳跃表中没有该数据，则进行插入操作。  
+**节点更新：** 和节点删除的原理差不多，如果跳跃表中没有该数据，则进行插入操作。  
 
 | 函数          | 作用          | 时间复杂度 |
 | ---           |---           |---        |
@@ -109,6 +109,9 @@ int zslLexValueGteMin(sds value, zlexrangespec *spec);
 int zslLexValueLteMax(sds value, zlexrangespec *spec);
 unsigned long zslGetRank(zskiplist *zsl, double score, sds o); // 返回指定分值和成员在跳跃表中的排位（位置）
 ```
+
+</br>
+</br>
 
 ## 主要函数实现
 
