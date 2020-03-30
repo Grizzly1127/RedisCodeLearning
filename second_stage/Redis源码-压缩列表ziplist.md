@@ -5,8 +5,6 @@
 ---
 源码位置：ziplist.c/ziplist.h
 
-Redis3.2版本以前的列表底层的编码是ziplist和linkedlist(adlist.c)实现的，3.2版本后重新引入了quicklist的数据结构，列表底层都由quicklist来实现。但我认为ziplist还是有学习的必要，知其然，更要知其所以然，因为只有看懂了ziplist，才能知道Redis为什么选择quicklist而不是ziplist。  
-
 ziplist没有定义专门的结构体，其在内存块中的表示如下图所示：  
 **ziplist结构：**  
 ![ziplist](../img/ziplist.png)  
