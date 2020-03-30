@@ -5,7 +5,7 @@
 ---
 源码位置：ziplist.c/ziplist.h
 
-Redis3.2版本以前的列表底层的编码是ziplist和linkedlist实现的，3.2版本后重新引入了quicklist的数据结构，列表底层都由quicklist来实现。我认为ziplist还是有学习的必要，知其然，更要知其所以然，因为只有看懂了ziplist，才能知道Redis为什么选择quicklist而不是ziplist。  
+Redis3.2版本以前的列表底层的编码是ziplist和linkedlist(adlist.c)实现的，3.2版本后重新引入了quicklist的数据结构，列表底层都由quicklist来实现。但我认为ziplist还是有学习的必要，知其然，更要知其所以然，因为只有看懂了ziplist，才能知道Redis为什么选择quicklist而不是ziplist。  
 
 ziplist没有定义专门的结构体，其在内存块中的表示如下图所示：  
 **ziplist结构：**  
@@ -32,6 +32,16 @@ len/encoding：当前节点的长度（编码类型）
 data：数据  
 
 实际上，源码里有定义zlentry的结构体，但是这个结构体并不是实际上存储的节点结构，它仅做中间结构操作使用。  
+
+</br>
+
+**时间复杂度：**
+| 函数          | 作用          | 时间复杂度 |
+| ---           |---           |---        |
+|ziplistNew     |创建跳跃表     |O(1)       |
+|ziplistInsert  |插入节点       |平均O(N)（耗时在连锁更新）       |
+|ziplistDelete  |删除节点       |平均O(N)（耗时在连锁更新）       |
+|ziplistFind    |查找节点       |平均O(N)   |
 </br>
 </br>
 
@@ -62,7 +72,7 @@ data：数据
 #define ZIP_INT_16B (0xc0 | 0<<4)   // 11000000 ：int16_t
 #define ZIP_INT_32B (0xc0 | 1<<4)   // 11010000 ：int32_t
 #define ZIP_INT_64B (0xc0 | 2<<4)   // 11100000 ：int64_t
-#define ZIP_INT_24B (0xc0 | 3<<4)   // 11110000 ：24位有符号整数（3byte）
+#define ZIP_INT_24B (0xc0 | 3<<4)   // 11110000 ：24位有符号整数
 #define ZIP_INT_8B 0xfe             // 11111110 ：8位有符号整数
 
 /* 4 bit integer immediate encoding |1111xxxx| with xxxx between
@@ -245,13 +255,13 @@ unsigned char *__ziplistInsert(unsigned char *zl, unsigned char *p, unsigned cha
     zlentry tail;
 
     /* Find out prevlen for the entry that is inserted. */
-    // 判断p是不是压缩列表的末端
+    // 以下步骤是为了获取前一个节点的长度
     if (p[0] != ZIP_END) {
-        ZIP_DECODE_PREVLEN(p, prevlensize, prevlen); // 获取p前置节点的数据
+        ZIP_DECODE_PREVLEN(p, prevlensize, prevlen);
     } else {
         unsigned char *ptail = ZIPLIST_ENTRY_TAIL(zl);
         if (ptail[0] != ZIP_END) {
-            prevlen = zipRawEntryLength(ptail); // 获取表尾节点的长度
+            prevlen = zipRawEntryLength(ptail);
         }
     }
 
@@ -259,7 +269,7 @@ unsigned char *__ziplistInsert(unsigned char *zl, unsigned char *p, unsigned cha
     // 尝试进行整数字符串编码
     if (zipTryEncoding(s,slen,&value,&encoding)) {
         /* 'encoding' is set to the appropriate integer encoding */
-        reqlen = zipIntSize(encoding); // 成功则获取数据存储需要的字节数
+        reqlen = zipIntSize(encoding); // 获取数据存储需要的字节数（data部分）
     } else {
         /* 'encoding' is untouched, however zipStoreEntryEncoding will use the
          * string length to figure out how to encode it. */
@@ -274,7 +284,7 @@ unsigned char *__ziplistInsert(unsigned char *zl, unsigned char *p, unsigned cha
      * make sure that the next entry can hold this entry's length in
      * its prevlen field. */
     int forcelarge = 0;
-    nextdiff = (p[0] != ZIP_END) ? zipPrevLenByteDiff(p,reqlen) : 0; // 看是否会引起后面节点的长度变化
+    nextdiff = (p[0] != ZIP_END) ? zipPrevLenByteDiff(p,reqlen) : 0; // 看是否会引起后面节点的长度变化，如果有变化，需要进行联锁更新
     if (nextdiff == -4 && reqlen < 4) {
         nextdiff = 0;
         forcelarge = 1;
@@ -282,10 +292,11 @@ unsigned char *__ziplistInsert(unsigned char *zl, unsigned char *p, unsigned cha
 
     /* Store offset because a realloc may change the address of zl. */
     offset = p-zl;
-    zl = ziplistResize(zl,curlen+reqlen+nextdiff); // 重新分配ziplist的大小，为插入节点做准备
+    zl = ziplistResize(zl,curlen+reqlen+nextdiff); // 重新分配ziplist的大小，为插入节点做准备，给新的尾部节点赋值FF，更新头部节点zlbyte的值
     p = zl+offset;
 
     /* Apply memory move when necessary and update tail offset. */
+    // 更新zltail信息
     if (p[0] != ZIP_END) {
         /* Subtract one because of the ZIP_END bytes */
         memmove(p+reqlen,p-nextdiff,curlen-offset-1+nextdiff); // 数据往后移动，并根据nextdiff进行调整
@@ -338,7 +349,7 @@ unsigned char *__ziplistInsert(unsigned char *zl, unsigned char *p, unsigned cha
 }
 ```
 
-**编码相关：**
+**编码encoding字段相关：**
 
 ``` c
 // 判断是不是整数字符串，如果是，确定其编码类型
@@ -368,6 +379,217 @@ int zipTryEncoding(unsigned char *entry, unsigned int entrylen, long long *v, un
         return 1;
     }
     return 0;
+}
+
+/* Store integer 'value' at 'p', encoded as 'encoding' */
+void zipSaveInteger(unsigned char *p, int64_t value, unsigned char encoding) {
+    int16_t i16;
+    int32_t i32;
+    int64_t i64;
+    if (encoding == ZIP_INT_8B) {
+        ((int8_t*)p)[0] = (int8_t)value;
+    } else if (encoding == ZIP_INT_16B) {
+        i16 = value;
+        memcpy(p,&i16,sizeof(i16));
+        memrev16ifbe(p);
+    } else if (encoding == ZIP_INT_24B) {
+        i32 = value<<8;
+        memrev32ifbe(&i32);
+        memcpy(p,((uint8_t*)&i32)+1,sizeof(i32)-sizeof(uint8_t));
+    } else if (encoding == ZIP_INT_32B) {
+        i32 = value;
+        memcpy(p,&i32,sizeof(i32));
+        memrev32ifbe(p);
+    } else if (encoding == ZIP_INT_64B) {
+        i64 = value;
+        memcpy(p,&i64,sizeof(i64));
+        memrev64ifbe(p);
+    } else if (encoding >= ZIP_INT_IMM_MIN && encoding <= ZIP_INT_IMM_MAX) {
+        /* Nothing to do, the value is stored in the encoding itself. */
+    } else {
+        assert(NULL);
+    }
+}
+
+/* Read integer encoded as 'encoding' from 'p' */
+int64_t zipLoadInteger(unsigned char *p, unsigned char encoding) {
+    int16_t i16;
+    int32_t i32;
+    int64_t i64, ret = 0;
+    if (encoding == ZIP_INT_8B) {
+        ret = ((int8_t*)p)[0];
+    } else if (encoding == ZIP_INT_16B) {
+        memcpy(&i16,p,sizeof(i16));
+        memrev16ifbe(&i16);
+        ret = i16;
+    } else if (encoding == ZIP_INT_32B) {
+        memcpy(&i32,p,sizeof(i32));
+        memrev32ifbe(&i32);
+        ret = i32;
+    } else if (encoding == ZIP_INT_24B) {
+        i32 = 0;
+        memcpy(((uint8_t*)&i32)+1,p,sizeof(i32)-sizeof(uint8_t));
+        memrev32ifbe(&i32);
+        ret = i32>>8;
+    } else if (encoding == ZIP_INT_64B) {
+        memcpy(&i64,p,sizeof(i64));
+        memrev64ifbe(&i64);
+        ret = i64;
+    } else if (encoding >= ZIP_INT_IMM_MIN && encoding <= ZIP_INT_IMM_MAX) {
+        ret = (encoding & ZIP_INT_IMM_MASK)-1;
+    } else {
+        assert(NULL);
+    }
+    return ret;
+}
+```
+
+**删除：**
+
+``` c
+/* Delete a single entry from the ziplist, pointed to by *p.
+ * Also update *p in place, to be able to iterate over the
+ * ziplist, while deleting entries. */
+unsigned char *ziplistDelete(unsigned char *zl, unsigned char **p) {
+    size_t offset = *p-zl;
+    zl = __ziplistDelete(zl,*p,1);
+
+    /* Store pointer to current element in p, because ziplistDelete will
+     * do a realloc which might result in a different "zl"-pointer.
+     * When the delete direction is back to front, we might delete the last
+     * entry and end up with "p" pointing to ZIP_END, so check this. */
+    *p = zl+offset;
+    return zl;
+}
+
+/* Delete "num" entries, starting at "p". Returns pointer to the ziplist. */
+unsigned char *__ziplistDelete(unsigned char *zl, unsigned char *p, unsigned int num) {
+    unsigned int i, totlen, deleted = 0;
+    size_t offset;
+    int nextdiff = 0;
+    zlentry first, tail;
+
+    zipEntry(p, &first);
+    for (i = 0; p[0] != ZIP_END && i < num; i++) {
+        p += zipRawEntryLength(p);
+        deleted++;
+    }
+
+    totlen = p-first.p; /* Bytes taken by the element(s) to delete. */
+    if (totlen > 0) {
+        if (p[0] != ZIP_END) {
+            /* Storing `prevrawlen` in this entry may increase or decrease the
+             * number of bytes required compare to the current `prevrawlen`.
+             * There always is room to store this, because it was previously
+             * stored by an entry that is now being deleted. */
+            nextdiff = zipPrevLenByteDiff(p,first.prevrawlen); // 比较删除的节点和之后的节点长度之间有没有变化，有变化就需要连锁更新
+
+            /* Note that there is always space when p jumps backward: if
+             * the new previous entry is large, one of the deleted elements
+             * had a 5 bytes prevlen header, so there is for sure at least
+             * 5 bytes free and we need just 4. */
+            p -= nextdiff;
+            zipStorePrevEntryLength(p,first.prevrawlen);
+
+            /* Update offset for tail */
+            ZIPLIST_TAIL_OFFSET(zl) =
+                intrev32ifbe(intrev32ifbe(ZIPLIST_TAIL_OFFSET(zl))-totlen);
+
+            /* When the tail contains more than one entry, we need to take
+             * "nextdiff" in account as well. Otherwise, a change in the
+             * size of prevlen doesn't have an effect on the *tail* offset. */
+            zipEntry(p, &tail);
+            if (p[tail.headersize+tail.len] != ZIP_END) {
+                ZIPLIST_TAIL_OFFSET(zl) =
+                   intrev32ifbe(intrev32ifbe(ZIPLIST_TAIL_OFFSET(zl))+nextdiff);
+            }
+
+            /* Move tail to the front of the ziplist */
+            memmove(first.p,p,
+                intrev32ifbe(ZIPLIST_BYTES(zl))-(p-zl)-1);
+        } else {
+            /* The entire tail was deleted. No need to move memory. */
+            ZIPLIST_TAIL_OFFSET(zl) =
+                intrev32ifbe((first.p-zl)-first.prevrawlen);
+        }
+
+        /* Resize and update length */
+        offset = first.p-zl;
+        zl = ziplistResize(zl, intrev32ifbe(ZIPLIST_BYTES(zl))-totlen+nextdiff);
+        ZIPLIST_INCR_LENGTH(zl,-deleted);
+        p = zl+offset;
+
+        /* When nextdiff != 0, the raw length of the next entry has changed, so
+         * we need to cascade the update throughout the ziplist */
+        if (nextdiff != 0)
+            zl = __ziplistCascadeUpdate(zl,p);
+    }
+    return zl;
+}
+```
+
+**查找：**
+
+``` c
+/* Find pointer to the entry equal to the specified entry. Skip 'skip' entries
+ * between every comparison. Returns NULL when the field could not be found. */
+unsigned char *ziplistFind(unsigned char *p, unsigned char *vstr, unsigned int vlen, unsigned int skip) {
+    int skipcnt = 0;
+    unsigned char vencoding = 0;
+    long long vll = 0;
+
+    while (p[0] != ZIP_END) {
+        unsigned int prevlensize, encoding, lensize, len;
+        unsigned char *q;
+
+        ZIP_DECODE_PREVLENSIZE(p, prevlensize); // 获取当前节点prelen的size，为了P往后偏移取出encoding
+        ZIP_DECODE_LENGTH(p + prevlensize, encoding, lensize, len); // 获取当前节点encoding的size和数据size
+        q = p + prevlensize + lensize; // q指向该节点存储的数据地址
+
+        if (skipcnt == 0) {
+            /* Compare current entry with specified entry */
+            if (ZIP_IS_STR(encoding)) {
+                if (len == vlen && memcmp(q, vstr, vlen) == 0) {
+                    return p;
+                }
+            } else {
+                /* Find out if the searched field can be encoded. Note that
+                 * we do it only the first time, once done vencoding is set
+                 * to non-zero and vll is set to the integer value. */
+                if (vencoding == 0) {
+                    if (!zipTryEncoding(vstr, vlen, &vll, &vencoding)) {
+                        /* If the entry can't be encoded we set it to
+                         * UCHAR_MAX so that we don't retry again the next
+                         * time. */
+                        vencoding = UCHAR_MAX;
+                    }
+                    /* Must be non-zero by now */
+                    assert(vencoding);
+                }
+
+                /* Compare current entry with specified entry, do it only
+                 * if vencoding != UCHAR_MAX because if there is no encoding
+                 * possible for the field it can't be a valid integer. */
+                if (vencoding != UCHAR_MAX) {
+                    long long ll = zipLoadInteger(q, encoding);
+                    if (ll == vll) {
+                        return p;
+                    }
+                }
+            }
+
+            /* Reset skip count */
+            skipcnt = skip;
+        } else {
+            /* Skip entry */
+            skipcnt--;
+        }
+
+        /* Move to next entry */
+        p = q + len;
+    }
+
+    return NULL;
 }
 ```
 
