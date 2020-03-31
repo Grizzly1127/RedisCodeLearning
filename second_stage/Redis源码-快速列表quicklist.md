@@ -249,7 +249,7 @@ void quicklistBookmarksClear(quicklist *ql) {
 }
 ```
 
-**插入：**
+**push操作：**
 
 ``` c
 void quicklistPush(quicklist *quicklist, void *value, const size_t sz,
@@ -338,6 +338,75 @@ REDIS_STATIC int _quicklistNodeAllowInsert(const quicklistNode *node,
         return 1;
     else
         return 0;
+}
+```
+
+**pop操作：**
+
+``` c
+int quicklistPop(quicklist *quicklist, int where, unsigned char **data,
+                 unsigned int *sz, long long *slong) {
+    unsigned char *vstr;
+    unsigned int vlen;
+    long long vlong;
+    if (quicklist->count == 0)
+        return 0;
+    int ret = quicklistPopCustom(quicklist, where, &vstr, &vlen, &vlong,
+                                 _quicklistSaver);
+    if (data)
+        *data = vstr;
+    if (slong)
+        *slong = vlong;
+    if (sz)
+        *sz = vlen;
+    return ret;
+}
+
+int quicklistPopCustom(quicklist *quicklist, int where, unsigned char **data,
+                       unsigned int *sz, long long *sval,
+                       void *(*saver)(unsigned char *data, unsigned int sz)) {
+    unsigned char *p;
+    unsigned char *vstr;
+    unsigned int vlen;
+    long long vlong;
+    int pos = (where == QUICKLIST_HEAD) ? 0 : -1;
+
+    if (quicklist->count == 0)
+        return 0;
+
+    if (data)
+        *data = NULL;
+    if (sz)
+        *sz = 0;
+    if (sval)
+        *sval = -123456789;
+
+    quicklistNode *node;
+    if (where == QUICKLIST_HEAD && quicklist->head) {
+        node = quicklist->head;
+    } else if (where == QUICKLIST_TAIL && quicklist->tail) {
+        node = quicklist->tail;
+    } else {
+        return 0;
+    }
+
+    p = ziplistIndex(node->zl, pos);
+    if (ziplistGet(p, &vstr, &vlen, &vlong)) {
+        if (vstr) {
+            if (data)
+                *data = saver(vstr, vlen);
+            if (sz)
+                *sz = vlen;
+        } else {
+            if (data)
+                *data = NULL;
+            if (sval)
+                *sval = vlong;
+        }
+        quicklistDelIndex(quicklist, node, &p);
+        return 1;
+    }
+    return 0;
 }
 ```
 
