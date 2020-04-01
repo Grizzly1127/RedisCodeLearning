@@ -135,7 +135,7 @@ void trimStringObjectIfNeeded(robj *o);
 
 ---
 
-**创建：**
+**base object创建：**
 
 ``` c
 // base
@@ -156,7 +156,11 @@ robj *createObject(int type, void *ptr) {
     }
     return o;
 }
+```
 
+**string object创建：**
+
+``` c
 // create string object
 #define OBJ_ENCODING_EMBSTR_SIZE_LIMIT 44
 robj *createStringObject(const char *ptr, size_t len) {
@@ -199,42 +203,66 @@ robj *createEmbeddedStringObject(const char *ptr, size_t len) {
 robj *createRawStringObject(const char *ptr, size_t len) {
     return createObject(OBJ_STRING, sdsnewlen(ptr,len));
 }
+```
 
+**quicklist object创建：**
+
+``` c
 robj *createQuicklistObject(void) {
     quicklist *l = quicklistCreate();
     robj *o = createObject(OBJ_LIST,l);
     o->encoding = OBJ_ENCODING_QUICKLIST;
     return o;
 }
+```
 
+**ziplist object创建：**
+
+``` c
 robj *createZiplistObject(void) {
     unsigned char *zl = ziplistNew();
     robj *o = createObject(OBJ_LIST,zl);
     o->encoding = OBJ_ENCODING_ZIPLIST;
     return o;
 }
+```
 
+**set object创建：**
+
+``` c
 robj *createSetObject(void) {
     dict *d = dictCreate(&setDictType,NULL);
     robj *o = createObject(OBJ_SET,d);
     o->encoding = OBJ_ENCODING_HT;
     return o;
 }
+```
 
+**intset object创建：**
+
+``` c
 robj *createIntsetObject(void) {
     intset *is = intsetNew();
     robj *o = createObject(OBJ_SET,is);
     o->encoding = OBJ_ENCODING_INTSET;
     return o;
 }
+```
 
+**hash object创建：**
+
+``` c
 robj *createHashObject(void) {
     unsigned char *zl = ziplistNew();
     robj *o = createObject(OBJ_HASH, zl);
     o->encoding = OBJ_ENCODING_ZIPLIST;
     return o;
 }
+```
 
+**zset object创建：**
+
+``` c
 robj *createZsetObject(void) {
     zset *zs = zmalloc(sizeof(*zs));
     robj *o;
@@ -245,7 +273,11 @@ robj *createZsetObject(void) {
     o->encoding = OBJ_ENCODING_SKIPLIST;
     return o;
 }
+```
 
+**zset ziplist object创建：**
+
+``` c
 robj *createZsetZiplistObject(void) {
     unsigned char *zl = ziplistNew();
     robj *o = createObject(OBJ_ZSET,zl);
