@@ -43,6 +43,8 @@ backlen：存储encoding+data的长度，这个是用于反向遍历的关键，
 
 ## 结构体与宏定义
 
+---
+
 ``` c
 // listpack_malloc.h
 #define lp_malloc zmalloc
