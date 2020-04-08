@@ -5,7 +5,7 @@
 ---
 源码位置：ziplist.c/ziplist.h
 
-ziplist没有定义专门的结构体，其在内存块中的表示如下图所示：  
+ziplist在redis中主要用于Hash与List数据结构的底层实现之一，ziplist没有定义专门的结构体，其在内存块中的表示如下图所示：  
 **ziplist结构：**  
 ![ziplist](../img/ziplist.png)  
 |属性       |类型       |长度        |用途        |
@@ -439,90 +439,6 @@ int64_t zipLoadInteger(unsigned char *p, unsigned char encoding) {
         assert(NULL);
     }
     return ret;
-}
-```
-
-**删除：**
-
-``` c
-/* Delete a single entry from the ziplist, pointed to by *p.
- * Also update *p in place, to be able to iterate over the
- * ziplist, while deleting entries. */
-unsigned char *ziplistDelete(unsigned char *zl, unsigned char **p) {
-    size_t offset = *p-zl;
-    zl = __ziplistDelete(zl,*p,1);
-
-    /* Store pointer to current element in p, because ziplistDelete will
-     * do a realloc which might result in a different "zl"-pointer.
-     * When the delete direction is back to front, we might delete the last
-     * entry and end up with "p" pointing to ZIP_END, so check this. */
-    *p = zl+offset;
-    return zl;
-}
-
-/* Delete "num" entries, starting at "p". Returns pointer to the ziplist. */
-unsigned char *__ziplistDelete(unsigned char *zl, unsigned char *p, unsigned int num) {
-    unsigned int i, totlen, deleted = 0;
-    size_t offset;
-    int nextdiff = 0;
-    zlentry first, tail;
-
-    zipEntry(p, &first);
-    for (i = 0; p[0] != ZIP_END && i < num; i++) {
-        p += zipRawEntryLength(p);
-        deleted++;
-    }
-
-    totlen = p-first.p; /* Bytes taken by the element(s) to delete. */
-    if (totlen > 0) {
-        if (p[0] != ZIP_END) {
-            /* Storing `prevrawlen` in this entry may increase or decrease the
-             * number of bytes required compare to the current `prevrawlen`.
-             * There always is room to store this, because it was previously
-             * stored by an entry that is now being deleted. */
-            nextdiff = zipPrevLenByteDiff(p,first.prevrawlen); // 比较删除的节点和之后的节点长度之间有没有变化，有变化就需要连锁更新
-
-            /* Note that there is always space when p jumps backward: if
-             * the new previous entry is large, one of the deleted elements
-             * had a 5 bytes prevlen header, so there is for sure at least
-             * 5 bytes free and we need just 4. */
-            p -= nextdiff;
-            zipStorePrevEntryLength(p,first.prevrawlen);
-
-            /* Update offset for tail */
-            ZIPLIST_TAIL_OFFSET(zl) =
-                intrev32ifbe(intrev32ifbe(ZIPLIST_TAIL_OFFSET(zl))-totlen);
-
-            /* When the tail contains more than one entry, we need to take
-             * "nextdiff" in account as well. Otherwise, a change in the
-             * size of prevlen doesn't have an effect on the *tail* offset. */
-            zipEntry(p, &tail);
-            if (p[tail.headersize+tail.len] != ZIP_END) {
-                ZIPLIST_TAIL_OFFSET(zl) =
-                   intrev32ifbe(intrev32ifbe(ZIPLIST_TAIL_OFFSET(zl))+nextdiff);
-            }
-
-            /* Move tail to the front of the ziplist */
-            memmove(first.p,p,
-                intrev32ifbe(ZIPLIST_BYTES(zl))-(p-zl)-1);
-        } else {
-            /* The entire tail was deleted. No need to move memory. */
-            ZIPLIST_TAIL_OFFSET(zl) =
-                intrev32ifbe((first.p-zl)-first.prevrawlen);
-        }
-
-        /* Resize and update length */
-        offset = first.p-zl;
-        zl = ziplistResize(zl, intrev32ifbe(ZIPLIST_BYTES(zl))-totlen+nextdiff);
-        ZIPLIST_INCR_LENGTH(zl,-deleted);
-        p = zl+offset;
-
-        /* When nextdiff != 0, the raw length of the next entry has changed, so
-         * we need to cascade the update throughout the ziplist */
-        if (nextdiff != 0)
-            zl = __ziplistCascadeUpdate(zl,p);
-    }
-    return zl;
 }
 ```
 
