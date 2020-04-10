@@ -7,7 +7,7 @@
 
 Redis 5.0版本引入的一个新的数据结构。  
 
-<font size=4>Rax核心数据结构：</font>  
+<font size=4>一、Rax数据结构：</font>  
 ![rax_node](../img/rax_node.png)
 字段说明：
 
@@ -19,7 +19,7 @@ Redis 5.0版本引入的一个新的数据结构。
 4. size：占用29个bit。
     * 非压缩：子节点的数量
     * 压缩：该节点字符个数
-5. data：柔性数组。包含路由键，子节点指针，value指针。
+5. data：柔性数组。包含路由键，子节点指针，value指针。为了提高cpu性能，data内存空间对齐(sizeof(void*))，所以会根据计算结果来进行相应的字节填充。
     * 非压缩节点的data伪代码：
 
        ``` C
@@ -29,9 +29,6 @@ Redis 5.0版本引入的一个新的数据结构。
             void* value; // 取决于 header 的 isNull 字段
        }
        ```
-
-        图示如下：
-       ![data_compre](../img/rax_uncompr.png)
 
     * 压缩节点的data伪代码：
 
@@ -45,21 +42,47 @@ Redis 5.0版本引入的一个新的数据结构。
        }
        ```
 
-        图示如下：
+        非压缩与压缩节点图示如下：
        ![data_compre](../img/rax_compr.png)
 
 </br>
 
-<font size=4>Rax创建：</font>  
+<font size=4>二、Rax创建：</font>  
 ![rax_new](../img/rax_new.png)  
 
 </br>
 
-<font size=4>Rax插入：</font>  
+<font size=4>三、Rax插入：</font>  
+ps：以下内容中的padding皆是为了内存对齐填充的空间。  
 
-<font size=3>1.在新创建的节点上插入<dog, "小狗是人类的朋友"></font>  
+<font size=3>1. 在空的基数树中插入数据：<dog, "狗是人类的朋友"></font>  
+解析：  
+首先从头结点开始查找，因为这是一个空的基数树，所以直接将"dog"插入到节点中，设置该节点为压缩节点（iscompr=1）,padding部分是为了内存对齐而填充的，创建该节点的叶子结点，叶子结点中，iskey=1是表示从头结点到该节点的父节点是一个完整的key，iskey=1 && isnull=0表示该叶子结点存储了key的value。  
+结果如下图：  
 ![rax_insert_1](../img/rax_insert_1.png)
 
+<font size=3>2. 接着插入数据：<cat, "猫咪很可爱"></font>  
+解析：  
+接着上面的基数树，从头结点开始查找，当前头结点存储的第一个字符是'd'，与要插入的key的第一个字符'c'不相等，所以需要将该节点拆分成两个节点（拆分的过程可看我下面的源码注释），分别存储[d]和[og]，此时基数树有3个节点。随后将字符'c'插入到首节点中，接着创建'c'子节点，将[at]插入到子节点中，并创建子节点的叶节点插入value的指针，此时基数树存在5个节点，元素个数为2。  
+结果如下图：  
+![rax_insert_2](../img/rax_insert_2.png)
+
+<font size=3>3. 接着插入数据：<doggy, "小狗很可爱"></font>  
+解析：  
+接着上面的基数树，从头结点开始查找key['doggy']，发现头结点只有一个'd'，接着在'd'的子节点node_1中比较['oggy']，找到['og']，'og'的子节点为叶子结点，这时只要直接把['gy']插入到叶子结点中，并创建一个'gy'的叶子结点插入value指针，即可完成插入。此时该基数树的节点数为6，元素个数为3。  
+结果如下图：  
+![rax_insert_3](../img/rax_insert_3.png)
+
+<font size=3>4. 接着插入数据：<carry, "携带"></font>  
+解析：  
+步骤如上一步，当匹配到节点['at']时，需要拆分该节点为['a']节点和['rt']节点， ['a']为['rt']的父节点，['rt']节点为非压缩节点，'r'指针指向新的节点['ry']，并创建['ry']的叶子结点，'t'指针指向原先的叶子结点，基数树右边部分保持不变，完成插入操作。此时该基数树的节点数为9，元素个数为4。  
+结果如下图：  
+![rax_insert_4](../img/rax_insert_4.png)
+
+</br>
+
+<font size=4>四、Rax删除：</font>  
+首先找到iskey节点，然后向上遍历父节点删除非iskey的节点。如果是非压缩的父节点并且size>1，表明该父节点还有其他相关的路径存在，则需要按照删除子节点的模式去处理这个父节点。  
 </br>
 </br>
 
@@ -85,11 +108,11 @@ typedef struct rax {
 
 #define RAX_STACK_STATIC_ITEMS 32
 typedef struct raxStack {
-    void **stack;
+    void **stack; // 存储每一层节点的地址
     size_t items, maxitems;
     void *static_items[RAX_STACK_STATIC_ITEMS];
     int oom;
-} raxStack;
+} raxStack; // 用于迭代，查找，删除的时候记录节点信息的栈结构，FILO
 
 #define RAX_ITER_STATIC_LEN 128
 #define RAX_ITER_JUST_SEEKED (1<<0)
@@ -107,6 +130,15 @@ typedef struct raxIterator {
     raxStack stack;         /* Stack used for unsafe iteration. */
     raxNodeCallback node_cb; /* Optional node callback. Normally set to NULL. */
 } raxIterator;
+
+/* 为了内存对齐填充的字节，为什么需要填充，本质上来说是为了提高cpu性能。填充之后的数据首地址按照
+ * sizeof(void*)字节对齐，保证每个节点都是内存对齐的：
+ * 在64位系统中(sizeof(void*)=8)，节点大小如下：
+ * 1. [header-4][padding-4] = 8byte
+ * 2. [header-4][data-2][padding-2] = 8byte
+ * 3. [header-4][data-11][padding-1] = 16byte
+ */
+#define raxPadding(nodesize) ((sizeof(void*)-((nodesize+4) % sizeof(void*))) & (sizeof(void*)-1))
 ```
 
 </br>
@@ -148,15 +180,6 @@ void raxSetData(raxNode *n, void *data);
 **创建：**
 
 ``` c
-/* 为了内存对齐填充的字节，为什么需要填充，本质上来说是为了提高cpu性能。填充之后的数据首地址按照
- * sizeof(void*)字节对齐，保证每个节点都是内存对齐的：
- * 在64位系统中(sizeof(void*)=8)，节点大小如下：
- * 1. [header-4][padding-4] = 8byte
- * 2. [header-4][data-2][padding-2] = 8byte
- * 3. [header-4][data-11][padding-1] = 16byte
- */
-#define raxPadding(nodesize) ((sizeof(void*)-((nodesize+4) % sizeof(void*))) & (sizeof(void*)-1))
-
 // 创建基数树
 rax *raxNew(void) {
     rax *rax = rax_malloc(sizeof(*rax)); // sizeof(*rax) = 4
@@ -189,27 +212,65 @@ raxNode *raxNewNode(size_t children, int datafield) {
 **插入：**
 
 ``` c
+static inline size_t raxLowWalk(rax *rax, unsigned char *s, size_t len, raxNode **stopnode, raxNode ***plink, int *splitpos, raxStack *ts) {
+    raxNode *h = rax->head; // 从头节点开始往下遍历
+    raxNode **parentlink = &rax->head;
+
+    size_t i = 0; /* Position in the string. */
+    size_t j = 0; /* Position in the node children (or bytes if compressed).*/
+    while(h->size && i < len) {
+        debugnode("Lookup current node",h);
+        unsigned char *v = h->data;
+
+        if (h->iscompr) {
+            /* 如果是压缩节点，表明该节点存储的全部字符应该和s中的部分或者全部字符相等
+             * 例如：
+             * 1. node:[header|'abcd'|d-ptr]  s:['abc']  那么j=3
+             * 2. node:[header|'ab'|b-ptr] s:['abc'] 继续往下遍历节点(b-ptr)找到字符'C'
+             *    然后在子节点中确定'c'的位置j */
+            for (j = 0; j < h->size && i < len; j++, i++) {
+                if (v[j] != s[i]) break;
+            }
+            if (j != h->size) break; // 表示已经找到节点，退出循环
+        } else {
+            /* 如果是非压缩节点，找到s[i]字符的位置j
+             * 例如：
+             * node:[header|'abc'|'a-ptr'|'b-ptr'|'c-ptr']， s[i]:['b']，那么j=1
+             * 然后可以根据j来确定子节点的地址'b-ptr'，便可继续往下遍历 */
+            for (j = 0; j < h->size; j++) {
+                if (v[j] == s[i]) break;
+            }
+            if (j == h->size) break;
+            i++;
+        }
+
+        if (ts) raxStackPush(ts,h); // 将当前节点压入栈中
+        raxNode **children = raxNodeFirstChildPtr(h); // 获取当前节点的第一个子节点指针的地址
+        if (h->iscompr) j = 0; /* 压缩节点不需要设置偏移量j */
+        memcpy(&h,children+j,sizeof(h)); // 根据偏移量j计算得到子节点的指针，并拷贝给h，接着继续while循环往下遍历
+        parentlink = children+j;
+        j = 0;
+    }
+    debugnode("Lookup stop node is",h);
+    if (stopnode) *stopnode = h;
+    if (plink) *plink = parentlink;
+    if (splitpos && h->iscompr) *splitpos = j;
+    return i;
+}
+
 int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **old, int overwrite) {
     size_t i;
-    int j = 0; /* Split position. If raxLowWalk() stops in a compressed
-                  node, the index 'j' represents the char we stopped within the
-                  compressed node, that is, the position where to split the
-                  node for insertion. */
+    int j = 0;
     raxNode *h, **parentlink;
 
     debugf("### Insert %.*s with value %p\n", (int)len, s, data);
-    i = raxLowWalk(rax,s,len,&h,&parentlink,&j,NULL);
+    i = raxLowWalk(rax,s,len,&h,&parentlink,&j,NULL); // 确定插入的节点位置，如果是压缩节点，确定分割位置j
 
-    /* If i == len we walked following the whole string. If we are not
-     * in the middle of a compressed node, the string is either already
-     * inserted or this middle node is currently not a key, but can represent
-     * our key. We have just to reallocate the node and make space for the
-     * data pointer. */
-    if (i == len && (!h->iscompr || j == 0 /* not in the middle if j is 0 */)) {
+    // 如果s已经存在于rax中
+    if (i == len && (!h->iscompr || j == 0)) {
         debugf("### Insert: node representing key exists\n");
-        /* Make space for the value pointer if needed. */
         if (!h->iskey || (h->isnull && overwrite)) {
-            h = raxReallocForData(h,data);
+            h = raxReallocForData(h,data); // 为值指针分配空间
             if (h) memcpy(parentlink,&h,sizeof(h));
         }
         if (h == NULL) {
@@ -219,6 +280,7 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
 
         /* Update the existing key if there is already one. */
         if (h->iskey) {
+            // 如果该key以存在，则根据需要是否重写value
             if (old) *old = raxGetData(h);
             if (overwrite) raxSetData(h,data);
             errno = 0;
@@ -227,137 +289,15 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
 
         /* Otherwise set the node as a key. Note that raxSetData()
          * will set h->iskey. */
+        // 插入value
         raxSetData(h,data);
         rax->numele++;
         return 1; /* Element inserted. */
     }
 
-    /* If the node we stopped at is a compressed node, we need to
-     * split it before to continue.
-     *
-     * Splitting a compressed node have a few possible cases.
-     * Imagine that the node 'h' we are currently at is a compressed
-     * node contaning the string "ANNIBALE" (it means that it represents
-     * nodes A -> N -> N -> I -> B -> A -> L -> E with the only child
-     * pointer of this node pointing at the 'E' node, because remember that
-     * we have characters at the edges of the graph, not inside the nodes
-     * themselves.
-     *
-     * In order to show a real case imagine our node to also point to
-     * another compressed node, that finally points at the node without
-     * children, representing 'O':
-     *
-     *     "ANNIBALE" -> "SCO" -> []
-     *
-     * When inserting we may face the following cases. Note that all the cases
-     * require the insertion of a non compressed node with exactly two
-     * children, except for the last case which just requires splitting a
-     * compressed node.
-     *
-     * 1) Inserting "ANNIENTARE"
-     *
-     *               |B| -> "ALE" -> "SCO" -> []
-     *     "ANNI" -> |-|
-     *               |E| -> (... continue algo ...) "NTARE" -> []
-     *
-     * 2) Inserting "ANNIBALI"
-     *
-     *                  |E| -> "SCO" -> []
-     *     "ANNIBAL" -> |-|
-     *                  |I| -> (... continue algo ...) []
-     *
-     * 3) Inserting "AGO" (Like case 1, but set iscompr = 0 into original node)
-     *
-     *            |N| -> "NIBALE" -> "SCO" -> []
-     *     |A| -> |-|
-     *            |G| -> (... continue algo ...) |O| -> []
-     *
-     * 4) Inserting "CIAO"
-     *
-     *     |A| -> "NNIBALE" -> "SCO" -> []
-     *     |-|
-     *     |C| -> (... continue algo ...) "IAO" -> []
-     *
-     * 5) Inserting "ANNI"
-     *
-     *     "ANNI" -> "BALE" -> "SCO" -> []
-     *
-     * The final algorithm for insertion covering all the above cases is as
-     * follows.
-     *
-     * ============================= ALGO 1 =============================
-     *
-     * For the above cases 1 to 4, that is, all cases where we stopped in
-     * the middle of a compressed node for a character mismatch, do:
-     *
-     * Let $SPLITPOS be the zero-based index at which, in the
-     * compressed node array of characters, we found the mismatching
-     * character. For example if the node contains "ANNIBALE" and we add
-     * "ANNIENTARE" the $SPLITPOS is 4, that is, the index at which the
-     * mismatching character is found.
-     *
-     * 1. Save the current compressed node $NEXT pointer (the pointer to the
-     *    child element, that is always present in compressed nodes).
-     *
-     * 2. Create "split node" having as child the non common letter
-     *    at the compressed node. The other non common letter (at the key)
-     *    will be added later as we continue the normal insertion algorithm
-     *    at step "6".
-     *
-     * 3a. IF $SPLITPOS == 0:
-     *     Replace the old node with the split node, by copying the auxiliary
-     *     data if any. Fix parent's reference. Free old node eventually
-     *     (we still need its data for the next steps of the algorithm).
-     *
-     * 3b. IF $SPLITPOS != 0:
-     *     Trim the compressed node (reallocating it as well) in order to
-     *     contain $splitpos characters. Change chilid pointer in order to link
-     *     to the split node. If new compressed node len is just 1, set
-     *     iscompr to 0 (layout is the same). Fix parent's reference.
-     *
-     * 4a. IF the postfix len (the length of the remaining string of the
-     *     original compressed node after the split character) is non zero,
-     *     create a "postfix node". If the postfix node has just one character
-     *     set iscompr to 0, otherwise iscompr to 1. Set the postfix node
-     *     child pointer to $NEXT.
-     *
-     * 4b. IF the postfix len is zero, just use $NEXT as postfix pointer.
-     *
-     * 5. Set child[0] of split node to postfix node.
-     *
-     * 6. Set the split node as the current node, set current index at child[1]
-     *    and continue insertion algorithm as usually.
-     *
-     * ============================= ALGO 2 =============================
-     *
-     * For case 5, that is, if we stopped in the middle of a compressed
-     * node but no mismatch was found, do:
-     *
-     * Let $SPLITPOS be the zero-based index at which, in the
-     * compressed node array of characters, we stopped iterating because
-     * there were no more keys character to match. So in the example of
-     * the node "ANNIBALE", addig the string "ANNI", the $SPLITPOS is 4.
-     *
-     * 1. Save the current compressed node $NEXT pointer (the pointer to the
-     *    child element, that is always present in compressed nodes).
-     *
-     * 2. Create a "postfix node" containing all the characters from $SPLITPOS
-     *    to the end. Use $NEXT as the postfix node child pointer.
-     *    If the postfix node length is 1, set iscompr to 0.
-     *    Set the node as a key with the associated value of the new
-     *    inserted key.
-     *
-     * 3. Trim the current node to contain the first $SPLITPOS characters.
-     *    As usually if the new node length is just 1, set iscompr to 0.
-     *    Take the iskey / associated value as it was in the orignal node.
-     *    Fix the parent's reference.
-     *
-     * 4. Set the postfix node as the only child pointer of the trimmed
-     *    node created at step 1.
-     */
-
     /* ------------------------- ALGORITHM 1 --------------------------- */
     if (h->iscompr && i != len) {
+        // 如果遍历后停在压缩节点上
         debugf("ALGO 1: Stopped at compressed node %.*s (%p)\n",
             h->size, h->data, (void*)h);
         debugf("Still to insert: %.*s\n", (int)(len-i), s+i);
@@ -465,6 +405,7 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
         h = splitnode;
     } else if (h->iscompr && i == len) {
     /* ------------------------- ALGORITHM 2 --------------------------- */
+        // 如果在压缩节点h中找到了所有的字符，则创建一个子节点插入
         debugf("ALGO 2: Stopped at compressed node %.*s (%p) j = %d\n",
             h->size, h->data, (void*)h, j);
 
