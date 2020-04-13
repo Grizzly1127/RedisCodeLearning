@@ -81,8 +81,22 @@ ps：以下内容中的padding皆是为了内存对齐填充的空间。
 
 </br>
 
-<font size=4>四、Rax删除：</font>  
-首先找到iskey节点，然后向上遍历父节点删除非iskey的节点。如果是非压缩的父节点并且size>1，表明该父节点还有其他相关的路径存在，则需要按照删除子节点的模式去处理这个父节点。  
+<font size=4>四、Rax查找：</font>  
+查找实现函数为：raxLowWalk()  
+从基数树的头节点往下遍历。比较节点的data值，并通过子节点指针往下继续遍历，直到找到完整的key。
+
+</br>
+
+<font size=4>五、Rax删除：</font>  
+分为几个步骤：  
+
+1. 通过raxLowWalk()找到要删除的key的节点
+2. 接着判断删除后，附近节点是否可以进行压缩、收敛树的高度
+3. 如果可以压缩，则进行压缩合并，合并的条件如下：
+
+   * iskey=1的节点
+   * 子节点只有一个字符
+   * 父节点只有一个子节点
 </br>
 </br>
 
@@ -209,7 +223,7 @@ raxNode *raxNewNode(size_t children, int datafield) {
 }
 ```
 
-**插入：**
+**查找：**
 
 ``` c
 static inline size_t raxLowWalk(rax *rax, unsigned char *s, size_t len, raxNode **stopnode, raxNode ***plink, int *splitpos, raxStack *ts) {
@@ -258,6 +272,21 @@ static inline size_t raxLowWalk(rax *rax, unsigned char *s, size_t len, raxNode 
     return i;
 }
 
+void *raxFind(rax *rax, unsigned char *s, size_t len) {
+    raxNode *h;
+
+    debugf("### Lookup: %.*s\n", (int)len, s);
+    int splitpos = 0;
+    size_t i = raxLowWalk(rax,s,len,&h,NULL,&splitpos,NULL);
+    if (i != len || (h->iscompr && splitpos != 0) || !h->iskey)
+        return raxNotFound;
+    return raxGetData(h);
+}
+```
+
+**插入：**
+
+``` c
 int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **old, int overwrite) {
     size_t i;
     int j = 0;
@@ -521,5 +550,218 @@ oom:
     }
     errno = ENOMEM;
     return 0;
+}
+```
+
+**删除：**
+
+``` c
+int raxRemove(rax *rax, unsigned char *s, size_t len, void **old) {
+    raxNode *h;
+    raxStack ts;
+
+    debugf("### Delete: %.*s\n", (int)len, s);
+    raxStackInit(&ts);
+    int splitpos = 0;
+    size_t i = raxLowWalk(rax,s,len,&h,NULL,&splitpos,&ts); // 将基数树路径上的节点压入ts栈中
+    if (i != len || (h->iscompr && splitpos != 0) || !h->iskey) {
+        raxStackFree(&ts);
+        return 0;
+    }
+    if (old) *old = raxGetData(h); // 如果需要旧数据，则获取旧数据
+    h->iskey = 0;
+    rax->numele--;
+
+    /* If this node has no children, the deletion needs to reclaim the
+     * no longer used nodes. This is an iterative process that needs to
+     * walk the three upward, deleting all the nodes with just one child
+     * that are not keys, until the head of the rax is reached or the first
+     * node with more than one child is found. */
+
+    int trycompress = 0; /* Will be set to 1 if we should try to optimize the
+                            tree resulting from the deletion. */
+
+    if (h->size == 0) {
+        debugf("Key deleted in node without children. Cleanup needed.\n");
+        raxNode *child = NULL;
+        while(h != rax->head) {
+            child = h;
+            debugf("Freeing child %p [%.*s] key:%d\n", (void*)child,
+                (int)child->size, (char*)child->data, child->iskey);
+            rax_free(child);
+            rax->numnodes--;
+            h = raxStackPop(&ts);
+             /* If this node has more then one child, or actually holds
+              * a key, stop here. */
+            if (h->iskey || (!h->iscompr && h->size != 1)) break;
+        }
+        if (child) {
+            debugf("Unlinking child %p from parent %p\n",
+                (void*)child, (void*)h);
+            raxNode *new = raxRemoveChild(h,child); // 删除子节点和父节点相关的信息（data和子节点指针）
+            if (new != h) {
+                raxNode *parent = raxStackPeek(&ts);
+                raxNode **parentlink;
+                if (parent == NULL) {
+                    parentlink = &rax->head;
+                } else {
+                    parentlink = raxFindParentLink(parent,h);
+                }
+                memcpy(parentlink,&new,sizeof(new));
+            }
+
+            /* If after the removal the node has just a single child
+             * and is not a key, we need to try to compress it. */
+            if (new->size == 1 && new->iskey == 0) { // 删除后，如果符合压缩节点结构，则压缩该节点
+                trycompress = 1;
+                h = new;
+            }
+        }
+    } else if (h->size == 1) { //
+        /* 如果该节点只有一个子节点，则进行压缩 */
+        trycompress = 1;
+    }
+
+    /* 如果是oom错误，则不进行压缩节点操作 */
+    if (trycompress && ts.oom) trycompress = 0;
+
+    if (trycompress) {
+        debugf("After removing %.*s:\n", (int)len, s);
+        debugnode("Compression may be needed",h);
+        debugf("Seek start node\n");
+
+        /* 从栈中弹出节点，用来判断最高可到达的能进行压缩的节点上。循环结束时，h指向可以尝试压缩的第一个节点，parent表示h的父节点 */
+        raxNode *parent;
+        while(1) {
+            parent = raxStackPop(&ts); // 从栈中弹出节点
+            if (!parent || parent->iskey ||
+                (!parent->iscompr && parent->size != 1)) break;
+            h = parent;
+            debugnode("Going up to",h);
+        }
+        raxNode *start = h; /* Compression starting node. */
+
+        /* 扫描可以压缩的节点链路 */
+        size_t comprsize = h->size;
+        int nodes = 1;
+        while(h->size != 0) {
+            raxNode **cp = raxNodeLastChildPtr(h);
+            memcpy(&h,cp,sizeof(h));
+            if (h->iskey || (!h->iscompr && h->size != 1)) break;
+            /* 判断节点中size是否超出最大限制 */
+            if (comprsize + h->size > RAX_NODE_MAX_SIZE) break;
+            nodes++;
+            comprsize += h->size;
+        }
+        if (nodes > 1) {
+            /* 如果可以压缩收敛，则创建新的节点进行合并 */
+            size_t nodesize =
+                sizeof(raxNode)+comprsize+raxPadding(comprsize)+sizeof(raxNode*);
+            raxNode *new = rax_malloc(nodesize);
+            /* An out of memory here just means we cannot optimize this
+             * node, but the tree is left in a consistent state. */
+            if (new == NULL) {
+                raxStackFree(&ts);
+                return 1;
+            }
+            new->iskey = 0;
+            new->isnull = 0;
+            new->iscompr = 1;
+            new->size = comprsize;
+            rax->numnodes++;
+
+            /* 再次扫描，以进行新节点的内容填充并修复新节点指针，同时释放所有不再使用的节点 */
+            comprsize = 0;
+            h = start;
+            while(h->size != 0) {
+                memcpy(new->data+comprsize,h->data,h->size);
+                comprsize += h->size;
+                raxNode **cp = raxNodeLastChildPtr(h);
+                raxNode *tofree = h;
+                memcpy(&h,cp,sizeof(h));
+                rax_free(tofree); rax->numnodes--;
+                if (h->iskey || (!h->iscompr && h->size != 1)) break;
+            }
+            debugnode("New node",new);
+
+            /* 此时h指向的是不参与压缩的节点，将新节点的指针指向它 */
+            raxNode **cp = raxNodeLastChildPtr(new);
+            memcpy(cp,&h,sizeof(h));
+
+            /* 父节点指针重新链接到新节点上 */
+            if (parent) {
+                raxNode **parentlink = raxFindParentLink(parent,start);
+                memcpy(parentlink,&new,sizeof(new));
+            } else {
+                rax->head = new;
+            }
+
+            debugf("Compressed %d nodes, %d total bytes\n",
+                nodes, (int)comprsize);
+        }
+    }
+    raxStackFree(&ts);
+    return 1;
+}
+
+raxNode *raxRemoveChild(raxNode *parent, raxNode *child) {
+    debugnode("raxRemoveChild before", parent);
+    /* 如果父节点是一个压缩节点（即只有一个子节点），那么删除子节点就意味着将其变成一个没有子节点的普通节点 */
+    if (parent->iscompr) {
+        void *data = NULL;
+        if (parent->iskey) data = raxGetData(parent);
+        parent->isnull = 0;
+        parent->iscompr = 0;
+        parent->size = 0;
+        if (parent->iskey) raxSetData(parent,data);
+        debugnode("raxRemoveChild after", parent);
+        return parent;
+    }
+
+    /* Otherwise we need to scan for the child pointer and memmove()
+     * accordingly.
+     *
+     * 1. To start we seek the first element in both the children
+     *    pointers and edge bytes in the node. */
+    raxNode **cp = raxNodeFirstChildPtr(parent);
+    raxNode **c = cp;
+    unsigned char *e = parent->data;
+
+    /* 2. 确定子节点的指针 */
+    while(1) {
+        raxNode *aux;
+        memcpy(&aux,c,sizeof(aux));
+        if (aux == child) break;
+        c++;
+        e++;
+    }
+
+    /* 3. 删除节点上的数据，和相应的子节点指针 */
+    int taillen = parent->size - (e - parent->data) - 1;
+    debugf("raxRemoveChild tail len: %d\n", taillen);
+    memmove(e,e+1,taillen);
+
+    /* 因为删除一个节点，需要删除父节点上关于子节点的data信息和指针信息，所以需要计算父节点上的偏移量，即节点上的数据向左偏移的字节数 */
+    size_t shift = ((parent->size+4) % sizeof(void*)) == 1 ? sizeof(void*) : 0;
+
+    /* 在删除之前移动子指针 */
+    if (shift)
+        memmove(((char*)cp)-shift,cp,(parent->size-taillen-1)*sizeof(raxNode**));
+
+    /* 将剩余的尾部指针移动到指定位置 */
+    size_t valuelen = (parent->iskey && !parent->isnull) ? sizeof(void*) : 0;
+    memmove(((char*)c)-shift,c+1,taillen*sizeof(raxNode**)+valuelen);
+
+    /* 4. 更新节点size. */
+    parent->size--;
+
+    /* 重新分配父节点的空间 */
+    raxNode *newnode = rax_realloc(parent,raxNodeCurrentLength(parent));
+    if (newnode) {
+        debugnode("raxRemoveChild after", newnode);
+    }
+    /* Note: if rax_realloc() fails we just return the old address, which
+     * is valid. */
+    return newnode ? newnode : parent;
 }
 ```
