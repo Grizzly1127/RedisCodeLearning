@@ -82,10 +82,10 @@ fill成员对应的配置：list-max-ziplist-size -2
 
 compress成员对应的配置：list-compress-depth 0
 后面的数字有以下含义：
-0 表示不压缩。（默认）
-1 表示quicklist列表的两端各有1个节点不压缩，中间的节点压缩。
-2 表示quicklist列表的两端各有2个节点不压缩，中间的节点压缩。
-3 表示quicklist列表的两端各有3个节点不压缩，中间的节点压缩。
+0： 表示不压缩。（默认）
+1： 表示quicklist列表的两端各有1个节点不压缩，中间的节点压缩。
+2： 表示quicklist列表的两端各有2个节点不压缩，中间的节点压缩。
+3： 表示quicklist列表的两端各有3个节点不压缩，中间的节点压缩。
 以此类推，最大为 216216。
 首位节点不压缩，是因为支持快速的push/pop操作。
 */
@@ -263,7 +263,7 @@ void quicklistPush(quicklist *quicklist, void *value, const size_t sz,
 
 int quicklistPushHead(quicklist *quicklist, void *value, size_t sz) {
     quicklistNode *orig_head = quicklist->head;
-    // likely可以让编译器进行代码优化，表示告知编译器，括号里的值为真的可能性更大，这样编译器在编译过程中，会将可能性更大的代码紧跟着起面的代码，从而减少指令跳转带来的性能上的下降
+    // likely可以让编译器进行代码优化，表示告知编译器，括号里的值为真的可能性更大，这样编译器在编译过程中，会将可能性更大的代码紧跟着前面的代码，从而减少指令跳转带来的性能上的下降
     if (likely(
             // 判断头节点是否能插入新元素
             _quicklistNodeAllowInsert(quicklist->head, quicklist->fill, sz))) {

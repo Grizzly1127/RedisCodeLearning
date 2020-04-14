@@ -16,6 +16,7 @@ redis对象的类型和其对应使用的编码方式（数据结构）：
 |OBJ_SET|OBJ_ENCODING_INTSET ,OBJ_ENCODING_HT|
 |OBJ_ZSET|OBJ_ENCODING_ZIPLIST ,OBJ_ENCODING_SKIPLIST|
 |OBJ_HASH|OBJ_ENCODING_ZIPLIST ,OBJ_ENCODING_HT|
+|OBJ_STREAM|OBJ_ENCODING_STREAM|
 
 </br>
 </br>
@@ -25,6 +26,8 @@ redis对象的类型和其对应使用的编码方式（数据结构）：
 ---
 
 ``` c
+#define LRU_BITS 24
+
 typedef struct redisObject {
     unsigned type:4;
     unsigned encoding:4;
@@ -35,26 +38,27 @@ typedef struct redisObject {
     void *ptr;
 } robj;
 /*
-type：标识redis对象的五种类型，占用4个字节
-encoding：标识redis对象的编码方式，也就是ptr所指向的数据用何种数据结构作为底层实现方式，占用4个字节
-lru:最后一次被访问的时间
+type：标识redis对象的七种类型，占用4个位
+encoding：标识redis对象的编码方式，也就是ptr所指向的数据用何种数据结构作为底层实现方式，占用4个位
+lru:最后一次被访问的时间，占用24个位
 refcount：引用计数，实现自动内存回收机制。
     1. 当创建一个对象时，其引用计数初始化为1；
     2. 当这个对象被一个新程序使用时，其引用计数加1；
     3. 当这个对象不再被一个程序使用时，其引用计数减1；
     4. 当引用计数为0时，释放该对象，回收内存。
+ptr：指向真正的存储结构
 */
 
-/* The actual Redis Object */
+/* 七种对象类型 */
 #define OBJ_STRING 0    /* String object. */
 #define OBJ_LIST 1      /* List object. */
 #define OBJ_SET 2       /* Set object. */
 #define OBJ_ZSET 3      /* Sorted set object. */
 #define OBJ_HASH 4      /* Hash object. */
+#define OBJ_MODULE 5    /* Module object. */
+#define OBJ_STREAM 6    /* Stream object. */
 
-/* Objects encoding. Some kind of objects like Strings and Hashes can be
- * internally represented in multiple ways. The 'encoding' field of the object
- * is set to one of this fields for this object. */
+/* 11种对象编码类型，不同的对象类型会根据实际情况选择不同的编码类型 */
 #define OBJ_ENCODING_RAW 0     /* Raw representation */ // sds简单动态字符串
 #define OBJ_ENCODING_INT 1     /* Encoded as integer */ // long类型的整数
 #define OBJ_ENCODING_HT 2      /* Encoded as hash table */ // dict字典
@@ -65,7 +69,7 @@ refcount：引用计数，实现自动内存回收机制。
 #define OBJ_ENCODING_SKIPLIST 7  /* Encoded as skiplist */ // skiplist跳跃表
 #define OBJ_ENCODING_EMBSTR 8  /* Embedded sds string encoding */ // EMBSTR编码的简单动态字符串sds
 #define OBJ_ENCODING_QUICKLIST 9 /* Encoded as linked list of ziplists */ // quicklist快速列表
-#define OBJ_ENCODING_STREAM 10 /* Encoded as a radix tree of listpacks */
+#define OBJ_ENCODING_STREAM 10 /* Encoded as a radix tree of listpacks */ // stream消息队列
 ```
 
 </br>
