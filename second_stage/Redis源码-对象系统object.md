@@ -5,8 +5,10 @@
 ---
 源码位置：object.c/server.h
 
-在之前的文章中，我们介绍了redis底层的数据结构，比如简单动态字符串，双端链表，跳跃表，字典，整数集合，压缩列表，快速列表等。  
-然而Redis没有用这些数据结构来实现键值对的数据库，而是在这些数据结构之上又封装了一层RedisObject，RedisObject有5种类型：string字符串，hash散列，set集合，zset有序集合，list列表，这些类型是面向用户的。  
+在之前的文章中，我们介绍了redis底层的数据结构，比如简单动态字符串，双端链表，跳跃表，字典，整数集合，压缩列表，快速列表，基数树，紧凑列表等。  
+然而Redis没有用这些数据结构来实现键值对的数据库，而是在这些数据结构之上又封装了一层RedisObject，RedisObject有6种类型：string字符串，hash散列，set集合，zset有序集合，list列表，stream消息队列这些类型是面向用户的，除了stream，每种对象内部至少有两种编码方式，不同的编码方式适用于不同的使用场景。  
+Redis对象带有引用计数功能，类似于智能指针，当引用计数为0时，对象将会被自动释放。
+Redis还会对每一个对象记录其最近被使用时间，从而计算对象的空转时长，便于在适当的时候释放内存。
 
 redis对象的类型和其对应使用的编码方式（数据结构）：  
 |type|encoding|
@@ -78,300 +80,57 @@ ptr：指向真正的存储结构
 
 ``` c
 /* Redis object implementation */
-void decrRefCount(robj *o);
-void decrRefCountVoid(void *o);
-void incrRefCount(robj *o);
-robj *makeObjectShared(robj *o);
-robj *resetRefCount(robj *obj);
+void decrRefCount(robj *o); // 引用计数减1
+void decrRefCountVoid(void *o); // 调用decrRefCount
+void incrRefCount(robj *o); // 引用计数加1
+robj *makeObjectShared(robj *o); // 共享对象，将引用计数设定为一个特殊值OBJ_SHARED_REFCOUNT(INT_MAX)
+robj *resetRefCount(robj *obj); // 将引用计数置为0
 // free object-------------
-void freeStringObject(robj *o);
-void freeListObject(robj *o);
-void freeSetObject(robj *o);
-void freeZsetObject(robj *o);
-void freeHashObject(robj *o);
+void freeStringObject(robj *o); // 释放字符串对象
+void freeListObject(robj *o); // 释放列表对象
+void freeSetObject(robj *o); // 释放集合对象
+void freeZsetObject(robj *o); // 释放有序集合对象
+void freeHashObject(robj *o); // 释放哈希对象
 // ------------------------
 // create object-----------
-robj *createObject(int type, void *ptr);
-robj *createStringObject(const char *ptr, size_t len);
-robj *createRawStringObject(const char *ptr, size_t len);
-robj *createEmbeddedStringObject(const char *ptr, size_t len);
+robj *createObject(int type, void *ptr); // 创建对象，设定类型
+robj *createStringObject(const char *ptr, size_t len); // 创建字符串对象
+robj *createRawStringObject(const char *ptr, size_t len); // 创建SDS的字符串对象
+robj *createEmbeddedStringObject(const char *ptr, size_t len); // 创建EMBSTR编码的字符串对象
 // ------------------------
-robj *dupStringObject(const robj *o);
-int isSdsRepresentableAsLongLong(sds s, long long *llval);
-int isObjectRepresentableAsLongLong(robj *o, long long *llongval);
-robj *tryObjectEncoding(robj *o);
-robj *getDecodedObject(robj *o);
-size_t stringObjectLen(robj *o);
+robj *dupStringObject(const robj *o); // 复制string对象
+int isSdsRepresentableAsLongLong(sds s, long long *llval); // sds转为long long
+int isObjectRepresentableAsLongLong(robj *o, long long *llongval); // 判断一个对象是否能用long long表示
+robj *tryObjectEncoding(robj *o); // 尝试对字符串对象进行编码，以节省空间，如果无法压缩，则增加引用计数
+robj *getDecodedObject(robj *o); // 获取字符串编码对象的解码版本，能解码则返回一个新的对象，不能则增加引用计数
+size_t stringObjectLen(robj *o); // 获取字符串对象的长度
 // create object-----------
-robj *createStringObjectFromLongLong(long long value);
+robj *createStringObjectFromLongLong(long long value); // 根据传入的longlong整型值，创建一个字符串对象
 robj *createStringObjectFromLongLongForValue(long long value);
-robj *createStringObjectFromLongDouble(long double value, int humanfriendly);
-robj *createQuicklistObject(void);
-robj *createZiplistObject(void);
-robj *createSetObject(void);
-robj *createIntsetObject(void);
-robj *createHashObject(void);
-robj *createZsetObject(void);
-robj *createZsetZiplistObject(void);
-robj *createStreamObject(void);
-robj *createModuleObject(moduleType *mt, void *value);
+robj *createStringObjectFromLongDouble(long double value, int humanfriendly); // 根据传入的long double类型值，创建一个字符串对象
+robj *createQuicklistObject(void); // 创建快速列表对象
+robj *createZiplistObject(void); // 创建压缩列表对象
+robj *createSetObject(void); // 创建集合对象
+robj *createIntsetObject(void); // 创建整数集合对象
+robj *createHashObject(void); // 创建hash对象
+robj *createZsetObject(void); // 创建有序集合对象
+robj *createZsetZiplistObject(void); // 创建压缩列表编码的有序集合对象
+robj *createStreamObject(void); // 创建消息队列对象
+robj *createModuleObject(moduleType *mt, void *value); // 创建模块对象
 // -------------------------
-int getLongFromObjectOrReply(client *c, robj *o, long *target, const char *msg);
-int checkType(client *c, robj *o, int type);
-int getLongLongFromObjectOrReply(client *c, robj *o, long long *target, const char *msg);
-int getDoubleFromObjectOrReply(client *c, robj *o, double *target, const char *msg);
-int getDoubleFromObject(const robj *o, double *target);
-int getLongLongFromObject(robj *o, long long *target);
-int getLongDoubleFromObject(robj *o, long double *target);
-int getLongDoubleFromObjectOrReply(client *c, robj *o, long double *target, const char *msg);
-char *strEncoding(int encoding);
-int compareStringObjects(robj *a, robj *b);
-int collateStringObjects(robj *a, robj *b);
-int equalStringObjects(robj *a, robj *b);
-unsigned long long estimateObjectIdleTime(robj *o);
-void trimStringObjectIfNeeded(robj *o);
+int getLongFromObjectOrReply(client *c, robj *o, long *target, const char *msg); // getLongLongFromObject函数的封装，如果发生错误可以发回指定响应消息
+int checkType(client *c, robj *o, int type); // 检查o的类型是否与type一致
+int getLongLongFromObjectOrReply(client *c, robj *o, long long *target, const char *msg); // getLongLongFromObject的封装，如果发生错误则可以发出指定的错误消息
+int getDoubleFromObjectOrReply(client *c, robj *o, double *target, const char *msg); // getDoubleFromObject的封装，如果发生错误可以发回指定响应消息
+int getDoubleFromObject(const robj *o, double *target); // 从字符串对象中解码出一个double类型的整数
+int getLongLongFromObject(robj *o, long long *target); // 从字符串对象中解码出一个long long类型的整数
+int getLongDoubleFromObject(robj *o, long double *target); // 从字符串对象中解码出一个long double类型的整数
+int getLongDoubleFromObjectOrReply(client *c, robj *o, long double *target, const char *msg); // getLongDoubleFromObject的封装，如果发生错误可以发回指定响应消息
+char *strEncoding(int encoding); // 返回编码对应的字符串名称
+int compareStringObjects(robj *a, robj *b); // 以二进制方式比较两个字符串对象
+int collateStringObjects(robj *a, robj *b); // 以本地指定的文字排列次序coll方式比较两个字符串
+int equalStringObjects(robj *a, robj *b); // 比较两个字符串对象是否相同
+unsigned long long estimateObjectIdleTime(robj *o); // 计算给定对象的闲置时长，使用近似LRU算法
+void trimStringObjectIfNeeded(robj *o); // 优化字符串对象中的SDS字符串
 #define sdsEncodedObject(objptr) (objptr->encoding == OBJ_ENCODING_RAW || objptr->encoding == OBJ_ENCODING_EMBSTR)
-```
-
-</br>
-
-## 主要函数实现
-
----
-
-**base object创建：**
-
-``` c
-// base
-robj *createObject(int type, void *ptr) {
-    robj *o = zmalloc(sizeof(*o));
-    o->type = type;
-    o->encoding = OBJ_ENCODING_RAW;
-    o->ptr = ptr;
-    o->refcount = 1;
-
-    /* Set the LRU to the current lruclock (minutes resolution), or
-     * alternatively the LFU counter. */
-    // 设置LFU为当前lruclock或者也可以设置为LFU计数器
-    if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
-        o->lru = (LFUGetTimeInMinutes()<<8) | LFU_INIT_VAL;
-    } else {
-        o->lru = LRU_CLOCK();
-    }
-    return o;
-}
-```
-
-**string object创建：**
-
-``` c
-// create string object
-#define OBJ_ENCODING_EMBSTR_SIZE_LIMIT 44
-robj *createStringObject(const char *ptr, size_t len) {
-    if (len <= OBJ_ENCODING_EMBSTR_SIZE_LIMIT)
-        // 短字符使用EMBSTR编码
-        return createEmbeddedStringObject(ptr,len);
-    else
-        // 长字符使用RAW编码
-        return createRawStringObject(ptr,len);
-}
-
-robj *createEmbeddedStringObject(const char *ptr, size_t len) {
-    robj *o = zmalloc(sizeof(robj)+sizeof(struct sdshdr8)+len+1);
-    struct sdshdr8 *sh = (void*)(o+1);
-
-    o->type = OBJ_STRING;
-    o->encoding = OBJ_ENCODING_EMBSTR;
-    o->ptr = sh+1;
-    o->refcount = 1;
-    if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
-        o->lru = (LFUGetTimeInMinutes()<<8) | LFU_INIT_VAL;
-    } else {
-        o->lru = LRU_CLOCK();
-    }
-
-    sh->len = len;
-    sh->alloc = len;
-    sh->flags = SDS_TYPE_8;
-    if (ptr == SDS_NOINIT)
-        sh->buf[len] = '\0';
-    else if (ptr) {
-        memcpy(sh->buf,ptr,len);
-        sh->buf[len] = '\0';
-    } else {
-        memset(sh->buf,0,len+1);
-    }
-    return o;
-}
-
-robj *createRawStringObject(const char *ptr, size_t len) {
-    return createObject(OBJ_STRING, sdsnewlen(ptr,len));
-}
-```
-
-**quicklist object创建：**
-
-``` c
-robj *createQuicklistObject(void) {
-    quicklist *l = quicklistCreate();
-    robj *o = createObject(OBJ_LIST,l);
-    o->encoding = OBJ_ENCODING_QUICKLIST;
-    return o;
-}
-```
-
-**ziplist object创建：**
-
-``` c
-robj *createZiplistObject(void) {
-    unsigned char *zl = ziplistNew();
-    robj *o = createObject(OBJ_LIST,zl);
-    o->encoding = OBJ_ENCODING_ZIPLIST;
-    return o;
-}
-```
-
-**set object创建：**
-
-``` c
-robj *createSetObject(void) {
-    dict *d = dictCreate(&setDictType,NULL);
-    robj *o = createObject(OBJ_SET,d);
-    o->encoding = OBJ_ENCODING_HT;
-    return o;
-}
-```
-
-**intset object创建：**
-
-``` c
-robj *createIntsetObject(void) {
-    intset *is = intsetNew();
-    robj *o = createObject(OBJ_SET,is);
-    o->encoding = OBJ_ENCODING_INTSET;
-    return o;
-}
-```
-
-**hash object创建：**
-
-``` c
-robj *createHashObject(void) {
-    unsigned char *zl = ziplistNew();
-    robj *o = createObject(OBJ_HASH, zl);
-    o->encoding = OBJ_ENCODING_ZIPLIST;
-    return o;
-}
-```
-
-**zset object创建：**
-
-``` c
-robj *createZsetObject(void) {
-    zset *zs = zmalloc(sizeof(*zs));
-    robj *o;
-
-    zs->dict = dictCreate(&zsetDictType,NULL);
-    zs->zsl = zslCreate();
-    o = createObject(OBJ_ZSET,zs);
-    o->encoding = OBJ_ENCODING_SKIPLIST;
-    return o;
-}
-```
-
-**zset ziplist object创建：**
-
-``` c
-robj *createZsetZiplistObject(void) {
-    unsigned char *zl = ziplistNew();
-    robj *o = createObject(OBJ_ZSET,zl);
-    o->encoding = OBJ_ENCODING_ZIPLIST;
-    return o;
-}
-
-robj *createStreamObject(void) {
-    stream *s = streamNew();
-    robj *o = createObject(OBJ_STREAM,s);
-    o->encoding = OBJ_ENCODING_STREAM;
-    return o;
-}
-
-robj *createModuleObject(moduleType *mt, void *value) {
-    moduleValue *mv = zmalloc(sizeof(*mv));
-    mv->type = mt;
-    mv->value = value;
-    return createObject(OBJ_MODULE,mv);
-}
-```
-
-**释放：**
-
-``` c
-void freeStringObject(robj *o) {
-    if (o->encoding == OBJ_ENCODING_RAW) {
-        sdsfree(o->ptr);
-    }
-}
-
-void freeListObject(robj *o) {
-    if (o->encoding == OBJ_ENCODING_QUICKLIST) {
-        quicklistRelease(o->ptr);
-    } else {
-        serverPanic("Unknown list encoding type");
-    }
-}
-
-void freeSetObject(robj *o) {
-    switch (o->encoding) {
-    case OBJ_ENCODING_HT:
-        dictRelease((dict*) o->ptr);
-        break;
-    case OBJ_ENCODING_INTSET:
-        zfree(o->ptr);
-        break;
-    default:
-        serverPanic("Unknown set encoding type");
-    }
-}
-
-void freeZsetObject(robj *o) {
-    zset *zs;
-    switch (o->encoding) {
-    case OBJ_ENCODING_SKIPLIST:
-        zs = o->ptr;
-        dictRelease(zs->dict);
-        zslFree(zs->zsl);
-        zfree(zs);
-        break;
-    case OBJ_ENCODING_ZIPLIST:
-        zfree(o->ptr);
-        break;
-    default:
-        serverPanic("Unknown sorted set encoding");
-    }
-}
-
-void freeHashObject(robj *o) {
-    switch (o->encoding) {
-    case OBJ_ENCODING_HT:
-        dictRelease((dict*) o->ptr);
-        break;
-    case OBJ_ENCODING_ZIPLIST:
-        zfree(o->ptr);
-        break;
-    default:
-        serverPanic("Unknown hash encoding type");
-        break;
-    }
-}
-
-void freeModuleObject(robj *o) {
-    moduleValue *mv = o->ptr;
-    mv->type->free(mv->value);
-    zfree(mv);
-}
-
-void freeStreamObject(robj *o) {
-    freeStream(o->ptr);
-}
 ```
