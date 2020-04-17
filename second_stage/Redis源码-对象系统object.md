@@ -72,6 +72,9 @@ ptr：指向真正的存储结构
 #define OBJ_ENCODING_EMBSTR 8  /* Embedded sds string encoding */ // EMBSTR编码的简单动态字符串sds
 #define OBJ_ENCODING_QUICKLIST 9 /* Encoded as linked list of ziplists */ // quicklist快速列表
 #define OBJ_ENCODING_STREAM 10 /* Encoded as a radix tree of listpacks */ // stream消息队列
+
+// 当字符串小于44字节时，使用EMBSTR编码
+#define OBJ_ENCODING_EMBSTR_SIZE_LIMIT 44
 ```
 
 </br>
