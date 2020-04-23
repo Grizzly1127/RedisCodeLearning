@@ -1,4 +1,4 @@
-# t_string字符串
+# t_string字符串对象
 
 ## 简介
 
@@ -6,6 +6,7 @@
 源码位置：t_string.c/server.h
 
 字符串是redis中最常用的数据结构，在对象系统object一文中我们提到，字符串数据结构根据场景会有三种编码类型：OBJ_ENCODING_RAW、OBJ_ENCODING_INT、OBJ_ENCODING_EMBSTR，分别对应底层数据结构：sds、int、sds。下面说说这三种编码类型的使用场景。  
+
 根据redisObject数据结构可以得知，一般创建object对象时，object和数据本身在内存中是分开的，要进行两次内存分配。  
 
 ``` c
@@ -25,11 +26,14 @@ typedef struct redisObject {
 ```
 
 所以当数据长度小于44时，用EMBSTR编码，否则使用OBJ_ENCODING_RAW编码。如果一个字符串对象保存的是整数值，并且可以用long类型来表示，则将字符串对象转为long，设置编码类型为OBJ_ENCODING_INT。  
+
 下面让我们看看实例：  
 ![t_string](../img/stage2/t_string.png)  
+
 INT和EMBSTR编码的字符串对象在条件满足的情况下，会转换为RAW编码。  
 比如INT编码对象在执行APPEND命令追加一段字符串时，将会转换为RAW编码，因为追加操作只支持字符串值，所以会把之前保存的整数值转为字符串后，再执行追加操作，这时就会转为RAW编码。  
 ![int_to_raw](../img/stage2/t_string_int_to_raw.png)  
+
 而redis没有提供对EMBSTR编码的字符串对象的修改操作，所以当进行追加操作时，也会先转为RAW编码，然后再进行追加。  
 ![embstr_to_raw](../img/stage2/t_string_embstr_to_raw.png)  
 
