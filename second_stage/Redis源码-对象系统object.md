@@ -6,7 +6,7 @@
 源码位置：object.c/server.h
 
 在之前的文章中，我们介绍了redis底层的数据结构，比如简单动态字符串，双端链表，跳跃表，字典，整数集合，压缩列表，快速列表，基数树，紧凑列表等。  
-然而Redis没有用这些数据结构来实现键值对的数据库，而是在这些数据结构之上又封装了一层RedisObject，RedisObject有6种类型：string字符串，hash散列，set集合，zset有序集合，list列表，stream消息队列这些类型是面向用户的，除了stream，每种对象内部至少有两种编码方式，不同的编码方式适用于不同的使用场景。  
+然而Redis没有用这些数据结构来实现键值对的数据库，而是在这些数据结构之上又封装了一层RedisObject，RedisObject有6种类型：string字符串，hash散列，set集合，zset有序集合，list列表，stream消息队列这些类型是面向用户的，有些对象内部至少有两种编码方式，不同的编码方式适用于不同的使用场景。  
 Redis对象带有引用计数功能，类似于智能指针，当引用计数为0时，对象将会被自动释放。
 Redis还会对每一个对象记录其最近被使用时间，从而计算对象的空转时长，便于在适当的时候释放内存。
 
@@ -14,7 +14,7 @@ redis对象的类型和其对应使用的编码方式（数据结构）：
 |type|encoding|
 |---|---|
 |OBJ_STRING|OBJ_ENCODING_RAW ,OBJ_ENCODING_INT ,OBJ_ENCODING_EMBSTR|
-|OBJ_LIST|OBJ_ENCODING_LINKEDLIST ,OBJ_ENCODING_ZIPLIST ,OBJ_ENCODING_QUICKLIST|
+|OBJ_LIST|OBJ_ENCODING_QUICKLIST|
 |OBJ_SET|OBJ_ENCODING_INTSET ,OBJ_ENCODING_HT|
 |OBJ_ZSET|OBJ_ENCODING_ZIPLIST ,OBJ_ENCODING_SKIPLIST|
 |OBJ_HASH|OBJ_ENCODING_ZIPLIST ,OBJ_ENCODING_HT|

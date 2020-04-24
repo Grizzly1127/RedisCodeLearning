@@ -37,6 +37,27 @@ INT和EMBSTR编码的字符串对象在条件满足的情况下，会转换为RA
 而redis没有提供对EMBSTR编码的字符串对象的修改操作，所以当进行追加操作时，也会先转为RAW编码，然后再进行追加。  
 ![embstr_to_raw](../img/stage2/t_string_embstr_to_raw.png)  
 
+|命令|功能|时间复杂度|
+|---|---|---|
+|GET|获取key对应的value|O(1)|
+|MGET|获取多个keys对应的values|O(N)，N为key的数量|
+|GETRANGE|返回key对应的字符串value的子串，由start和end位移决定|O(N)，N为字符串长度|
+|SET|设置一个key的value值|O(1)|
+|MSET|设置多个keys的values值|O(1)|
+|SETNX|key不存在时才设置value值（可通过set命令+NX参数实现）|O(1)|
+|MSETNX|keys不存在时才设置values值|O(1)|
+|SETEX|key存在时才设置值，到期时间以秒为单位（可通过set命令+XX参数实现）|O(1)|
+|PSETEX|和setex唯一的区别是到期时间以毫秒为单位（可通过set命令+XX+PX参数实现）|O(1)|
+|SETRANGE|覆盖key对应的string的一部分，从指定长度offset处开始，覆盖value的长度|O(1)|
+|APPEND|指定key的值结尾追加字符串|O(1)|
+|GETSET|自动将key对应到value并且返回原来key对应的value|O(1)|
+|INCR|对存储在指定key的数值执行原子的加1操作|O(1)|
+|INCRBY|将key对应的数字加上指定的整数值|O(1)|
+|INCRBYFLOAT|将key对应的数字加上指定的浮点数值|O(1)|
+|DECR|对key对应的数字做减1操作|O(1)|
+|DECRBY|将key对应的数字减去指定的整数值|O(1)|
+|STRLEN|获取指定key对应value的长度|O(1)|
+
 </br>
 </br>
 
@@ -45,24 +66,24 @@ INT和EMBSTR编码的字符串对象在条件满足的情况下，会转换为RA
 ---
 
 ``` c
-void setCommand(client *c); // set命令，设定键值对
-void setnxCommand(client *c); // setnx命令，key不存在时才设置值（可通过set命令+NX参数实现）
-void setexCommand(client *c); // setex命令，key存在时才设置值，到期时间以秒为单位（可通过set命令+XX参数实现）
-void psetexCommand(client *c); // psetex命令，和setex唯一的区别是到期时间以毫秒为单位（可通过set命令+XX+PX参数实现）
-void msetCommand(client *c); // mset命令，设定多个键值对
-void msetnxCommand(client *c); // msetnx命令，keys不存在时才设置values
-void setrangeCommand(client *c); // setrange命令，覆盖key对应的string的一部分，从指定长度offset处开始，覆盖value的长度
-void getrangeCommand(client *c); // getrange命令，返回key对应的字符串value的子串，由start和end位移决定
-void getCommand(client *c); // get命令，获取键对应的值
-void mgetCommand(client *c); // mget命令，获取多个keys对应的values
-void getsetCommand(client *c); // getset命令，自动将key对应到value并且返回原来key对应的value
-void incrCommand(client *c); // incr命令，对存储在指定key的数值执行原子的加1操作
-void decrCommand(client *c); // decr命令，对key对应的数字做减1操作
-void incrbyCommand(client *c); // incrby命令，将key对应的数字加上指定的整数值
-void decrbyCommand(client *c); // decrby命令，将key对应的数字减去指定的整数值
-void incrbyfloatCommand(client *c); // incrbyfloat命令，将key对应的数字加上指定的浮点数值
-void appendCommand(client *c); // append命令，指定key的值结尾追加字符串
-void strlenCommand(client *c); // strlen命令，获取指定key对应value的长度
+void setCommand(client *c); // set命令
+void setnxCommand(client *c); // setnx命令
+void setexCommand(client *c); // setex命令
+void psetexCommand(client *c); // psetex命令
+void msetCommand(client *c); // mset命令
+void msetnxCommand(client *c); // msetnx命令
+void setrangeCommand(client *c); // setrange命令
+void getrangeCommand(client *c); // getrange命令
+void getCommand(client *c); // get命令
+void mgetCommand(client *c); // mget命令
+void getsetCommand(client *c); // getset命令
+void incrCommand(client *c); // incr命令
+void decrCommand(client *c); // decr命令
+void incrbyCommand(client *c); // incrby命令
+void decrbyCommand(client *c); // decrby命令
+void incrbyfloatCommand(client *c); // incrbyfloat命令
+void appendCommand(client *c); // append命令
+void strlenCommand(client *c); // strlen命令
 ```
 
 </br>
