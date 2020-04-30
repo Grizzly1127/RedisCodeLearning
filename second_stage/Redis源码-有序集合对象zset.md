@@ -6,22 +6,12 @@
 源码位置：t_zset.c/server.h
 
 zset对象底层编码方式有两种，ziplist或skiplist。  
-使用intset编码的条件：  
+使用ziplist编码需要同时满足以下两个条件：  
 
-* 集合对象中所有元素都是整数值。
-* 集合对象保存的元素个数不超过512个。（可通过redis.conf配置：set_max_intset_entries）
+* 有序集合对象中所有元素的大小都小于64字节。（可通过redis.conf配置：zset_max_ziplist_value）
+* 有序集合对象保存的元素个数不超过128个。（可通过redis.conf配置：zset_max_ziplist_entries）
 
 下面让我们测试一下：  
-例1：  
-![intset1](../img/stage2/t_set_intset1.png)  
-当添加非整数的字符串时，则会转为hashtable编码  
-![intset2](../img/stage2/t_set_intset2.png)  
-
-例2：  
-插入512个整数，使用的是intset编码  
-![intset3](../img/stage2/t_set_intset3.png)  
-当插入第513个整数时，将会转为hashtable编码  
-![intset4](../img/stage2/t_set_intset4.png)  
 
 </br>
 
