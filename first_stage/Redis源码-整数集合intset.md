@@ -5,7 +5,7 @@
 ---
 源码位置：intset.c/intset.h  
 
-intset是redis内部的数据结构之一，用来实现redis的set结构（当元素较少且为数字类型时）。  
+intset用来实现redis的set对象的数据结构之一（当元素较少且为数字类型时）。  
 为了节省内存的使用，创建intset的时候，使用最小的int类型（int16_t），当插入的整数大于int16_t时，将会进行对应的字节提升（int32_t或者int64_t），这种提升是不可逆的。  
 
 **特点：**  
@@ -61,7 +61,7 @@ size_t intsetBlobLen(intset *is);
 **私有函数：**
 
 ``` c
-// 判断整数类型
+// 判断数值类型
 /* Return the required encoding for the provided value. */
 static uint8_t _intsetValueEncoding(int64_t v) {
     if (v < INT32_MIN || v > INT32_MAX)
@@ -216,6 +216,28 @@ static void _intsetSet(intset *is, int pos, int64_t value) {
         memrev16ifbe(((int16_t*)is->contents)+pos);
     }
 }
+
+// 当插入，或者删除时，需要进行元素挪动，比如，在pos位置插入一个元素时，pos后的所有元素都需要往后移（整体移动）
+static void intsetMoveTail(intset *is, uint32_t from, uint32_t to) {
+    void *src, *dst;
+    uint32_t bytes = intrev32ifbe(is->length)-from;
+    uint32_t encoding = intrev32ifbe(is->encoding);
+
+    if (encoding == INTSET_ENC_INT64) {
+        src = (int64_t*)is->contents+from;
+        dst = (int64_t*)is->contents+to;
+        bytes *= sizeof(int64_t);
+    } else if (encoding == INTSET_ENC_INT32) {
+        src = (int32_t*)is->contents+from;
+        dst = (int32_t*)is->contents+to;
+        bytes *= sizeof(int32_t);
+    } else {
+        src = (int16_t*)is->contents+from;
+        dst = (int16_t*)is->contents+to;
+        bytes *= sizeof(int16_t);
+    }
+    memmove(dst,src,bytes);
+}
 ```
 
 **查找：**
@@ -284,32 +306,6 @@ static uint8_t intsetSearch(intset *is, int64_t value, uint32_t *pos) {
         if (pos) *pos = min;
         return 0;
     }
-}
-```
-
-**挪动：**
-
-``` c
-// 当插入，或者删除时，需要进行元素挪动，比如，在pos位置插入一个元素时，pos后的所有元素都需要往后移（整体移动）
-static void intsetMoveTail(intset *is, uint32_t from, uint32_t to) {
-    void *src, *dst;
-    uint32_t bytes = intrev32ifbe(is->length)-from;
-    uint32_t encoding = intrev32ifbe(is->encoding);
-
-    if (encoding == INTSET_ENC_INT64) {
-        src = (int64_t*)is->contents+from;
-        dst = (int64_t*)is->contents+to;
-        bytes *= sizeof(int64_t);
-    } else if (encoding == INTSET_ENC_INT32) {
-        src = (int32_t*)is->contents+from;
-        dst = (int32_t*)is->contents+to;
-        bytes *= sizeof(int32_t);
-    } else {
-        src = (int16_t*)is->contents+from;
-        dst = (int16_t*)is->contents+to;
-        bytes *= sizeof(int16_t);
-    }
-    memmove(dst,src,bytes);
 }
 ```
 
