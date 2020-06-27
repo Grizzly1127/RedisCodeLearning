@@ -45,7 +45,7 @@
 输入的参数中至少要有一个 K 或者 E，否则的话，不管其余的参数是什么，都不会有任何通知被分发。
 在源码中设定了一系列的宏定义，用来标识以上这些字符事件的类型：
 
-```c++
+```c
 // 键空间通知的类型，每个类型都关联着一个有目的的字符
 #define NOTIFY_KEYSPACE (1<<0)    /* K */
 #define NOTIFY_KEYEVENT (1<<1)    /* E */
@@ -70,7 +70,7 @@
 
 ---
 
-```c++
+```c
 /* Keyspace events notification */
 void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid);
 int keyspaceEventsStringToFlags(char *classes);
@@ -83,7 +83,7 @@ sds keyspaceEventsFlagsToString(int flags);
 
 ---
 
-```c++
+```c
 /* 因为redis命令中事件类型是字符类型，所以会使用一个int类型的flags参数
  * 通过多个字符按位或运算保存起来，方便后面使用 */
 int keyspaceEventsStringToFlags(char *classes) {
@@ -112,7 +112,7 @@ int keyspaceEventsStringToFlags(char *classes) {
 }
 ```
 
-```c++
+```c
 // 将flags参数转为sds类型
 sds keyspaceEventsFlagsToString(int flags) {
     sds res;
@@ -137,7 +137,7 @@ sds keyspaceEventsFlagsToString(int flags) {
     return res;
 ```
 
-```c++
+```c
 // 利用Redis的订阅和发布功能来发送键空间事件通知。
 void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid) {
     sds chan;
