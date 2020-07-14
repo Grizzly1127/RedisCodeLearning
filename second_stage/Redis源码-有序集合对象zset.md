@@ -5,7 +5,7 @@
 ---
 源码位置：t_zset.c/server.h
 
-zset对象底层编码方式有两种，ziplist或skiplist。  
+zset对象底层编码方式有两种，`ziplist`或`skiplist`。  
 使用ziplist编码需要同时满足以下两个条件：  
 
 * 有序集合对象中所有元素的大小都小于64字节。（可通过redis.conf配置：zset_max_ziplist_value）
@@ -15,7 +15,7 @@ ziplist的结构如下：
 ![zset_ziplist](../img/stage2/t_zset_ziplist.png)  
 如上图，集合的元素由两个紧挨着的节点来保存，第一个节点保存元素的成员，第二个节点保存元素的分值。压缩列表内的元素按照分值从小到大排序，分值小的靠近表头，分值大的靠近表尾。  
 
-skiplist编码底层实际上是由skiplist和dict构成的：  
+zset编码底层实际上是由skiplist和dict构成的：  
 
 ``` c
 typedef struct zset {

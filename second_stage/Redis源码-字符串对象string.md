@@ -5,7 +5,7 @@
 ---
 源码位置：t_string.c/server.h
 
-字符串是redis中最常用的数据结构，在对象系统object一文中我们提到，字符串数据结构根据场景会有三种编码类型：OBJ_ENCODING_RAW、OBJ_ENCODING_INT、OBJ_ENCODING_EMBSTR，分别对应底层数据结构：sds、int、sds。下面说说这三种编码类型的使用场景。  
+字符串是redis中最常用的数据结构，在对象系统object一文中我们提到，字符串数据结构根据场景会有三种编码类型：`OBJ_ENCODING_RAW`、`OBJ_ENCODING_INT`、`OBJ_ENCODING_EMBSTR`，分别对应底层数据结构：sds、int、sds。下面说说这三种编码类型的使用场景。  
 
 根据redisObject数据结构可以得知，一般创建object对象时，object和数据本身在内存中是分开的，要进行两次内存分配。  
 

@@ -29,11 +29,12 @@
     - [x] [发布和订阅 redis.h文件的pubsubPattern结构，以及pubsub.c文件](./third_stage/Redis源码-发布和订阅.md)
     - [x] [事务 redis.h文件的multiState结构以及multiCmd结构，multi.c文件](./third_stage/Redis源码-事务.md)
 4. 第四阶段 熟悉客户端和服务器端的代码实现
-    - [ ] 事件处理模块 ae.c/ae_epoll.c/ae_evport.c/ae_kqueue.c/ae_select.c
-    - [ ] 网路链接库 anet.c和networking.c
+    - [ ] 事件驱动 ae.c/ae_epoll.c/ae_evport.c/ae_kqueue.c/ae_select.c
+    - [ ] 网路库 anet.c和networking.c
     - [ ] 服务器端 redis.c
     - [ ] 客户端 redis-cli.c
-    - [ ] 这个时候可以阅读下面的独立功能模块的代码实现
+    - [ ] 通信协议
+    - 这个时候可以阅读下面的独立功能模块的代码实现
     - [ ] lua脚本 scripting.c
     - [ ] 慢查询 slowlog.c
     - [ ] 监视 monitor.c
@@ -42,7 +43,7 @@
     - [ ] Redis Sentinel sentinel.c
     - [ ] 集群 cluster.c
 6. 其他代码文件介绍
-    - [ ] 关于测试方面的文件有：
+    - 关于测试方面的文件有：
     - [ ] memtest.c 内存检测
     - [ ] redis_benchmark.c 用于redis性能测试的实现。
     - [ ] redis_check_aof.c 用于更新日志检查的实现。

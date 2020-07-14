@@ -5,7 +5,7 @@
 ---
 源码位置：t_set.c/server.h
 
-set对象底层编码方式有两种，intset或hashtable。  
+set对象底层编码方式有两种，`intset`或`hashtable`。  
 使用intset编码的条件：  
 
 * 集合对象中所有元素都是整数值。

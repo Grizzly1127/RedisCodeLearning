@@ -5,7 +5,7 @@
 ---
 源码位置：t_hash.c/server.h  
 
-hash对象底层编码方式有两种，ziplist或hashtable。  
+hash对象底层编码方式有两种，`ziplist`或`hashtable`。  
 使用ziplist编码需要同时满足以下条件：  
 
 * hash对象保存的键值对的键和值的字符串长度小于64字节（可通过redis.conf配置：hash_max_ziplist_value）
