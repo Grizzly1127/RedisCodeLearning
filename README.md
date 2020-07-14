@@ -29,7 +29,7 @@
     - [x] [发布和订阅 redis.h文件的pubsubPattern结构，以及pubsub.c文件](./third_stage/Redis源码-发布和订阅.md)
     - [x] [事务 redis.h文件的multiState结构以及multiCmd结构，multi.c文件](./third_stage/Redis源码-事务.md)
 4. 第四阶段 熟悉客户端和服务器端的代码实现
-    - [ ] 事件驱动 ae.c/ae_epoll.c/ae_evport.c/ae_kqueue.c/ae_select.c
+    - [x] [事件驱动 ae.c/ae_epoll.c/...](./fourth_stage/Redis源码-事件驱动ae.md)
     - [ ] 网路库 anet.c和networking.c
     - [ ] 服务器端 redis.c
     - [ ] 客户端 redis-cli.c
