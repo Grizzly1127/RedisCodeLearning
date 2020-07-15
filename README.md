@@ -31,7 +31,7 @@
 4. 第四阶段 熟悉客户端和服务器端的代码实现
     - [x] [事件驱动 ae.c/ae_epoll.c/...](./fourth_stage/Redis源码-事件驱动.md)
     - [ ] 网络通信 anet.c和networking.c
-    - [ ] 服务器端 redis.c
+    - [ ] 服务器端 server.c
     - [ ] 客户端 redis-cli.c
     - [ ] 通信协议
     - 这个时候可以阅读下面的独立功能模块的代码实现
