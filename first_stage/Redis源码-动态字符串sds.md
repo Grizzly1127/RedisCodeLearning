@@ -114,7 +114,7 @@ sds sdsjoinsds(sds *argv, int argc, const char *sep, size_t seplen); // sds格�
 
 /* Low level functions exposed to the user API */
 sds sdsMakeRoomFor(sds s, size_t addlen); // 字符串s增加扩大addlen个字节
-void sdsIncrLen(sds s, ssize_t incr);
+void sdsIncrLen(sds s, ssize_t incr); // 调整sds中len的大小
 sds sdsRemoveFreeSpace(sds s); // 删除掉sds中的末端空间(local-len)
 size_t sdsAllocSize(sds s); // 返回整个结构的内存大小
 void *sdsAllocPtr(sds s); // 返回结构体的头指针
