@@ -92,7 +92,6 @@ typedef struct {
 
 ---
 **server.h:**  
-（不知道为啥zset的函数声明会在server.h里，待以后了解了再写下来吧）
 
 ``` c
 zskiplist *zslCreate(void); // 创建跳跃表，分配指定级别数的跳跃表节点
